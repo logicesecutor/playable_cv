@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playable CV</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Step 1: pick a PDF -->
+    <section id="upload-screen" class="screen">
+      <div class="upload-card">
+        <p class="tag">prototype · v0.1</p>
+        <h1>Playable&nbsp;CV</h1>
+        <p class="lede">Drop a PDF résumé. Every letter becomes a wall you can take cover behind, and shoot down.</p>
+
+        <label id="dropzone" class="dropzone" for="file-input">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="drop-icon">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6M12 18v-6M9 15l3-3 3 3" />
+          </svg>
+          <span class="drop-title">Drop your CV here</span>
+          <span class="drop-sub">or <u>choose a PDF</u> from your computer</span>
+          <input id="file-input" type="file" accept="application/pdf,.pdf" hidden />
+        </label>
+
+        <p id="upload-error" class="error" role="alert" hidden></p>
+        <p class="fineprint">Runs entirely in your browser. The file never leaves this machine.</p>
+      </div>
+    </section>
+
+    <!-- Step 1.5: working -->
+    <section id="loading-screen" class="screen" hidden>
+      <div class="loader">
+        <div class="bar"><span></span></div>
+        <p id="loading-text">Reading PDF…</p>
+      </div>
+    </section>
+
+    <!-- Step 2: the map -->
+    <section id="game-screen" class="screen" hidden>
+      <canvas id="view"></canvas>
+      <div id="hud">
+        <div id="crosshair" hidden></div>
+        <canvas id="minimap" width="200" height="283" hidden></canvas>
+        <div id="hint" class="hint"></div>
+        <div id="integrity" hidden>
+          <span class="label">CV integrity</span>
+          <span id="integrity-value">100.0%</span>
+          <span id="integrity-count" class="sub"></span>
+        </div>
+        <div id="ammo" hidden>
+          <span id="ammo-count">30</span><span class="sub">/ <span id="ammo-max">30</span></span>
+          <span id="ammo-status" class="sub"></span>
+        </div>
+        <div id="pause" hidden>
+          <div class="pause-card">
+            <p class="pause-title">Click to play</p>
+            <dl class="keys">
+              <dt>WASD</dt><dd>move</dd>
+              <dt>Mouse / touchpad</dt><dd>look · hold click to fire</dd>
+              <dt>Arrow keys</dt><dd>look (keyboard aiming)</dd>
+              <dt>F</dt><dd>fire (keyboard)</dd>
+              <dt>R</dt><dd>reload</dd>
+              <dt>Shift</dt><dd>sprint</dd>
+              <dt>Space</dt><dd>jump: climb onto body text</dd>
+              <dt>C</dt><dd>crouch: take cover</dd>
+              <dt>V</dt><dd>noclip fly (Q/E down/up)</dd>
+              <dt>M</dt><dd>mute</dd>
+              <dt>I</dt><dd>replay intro</dd>
+              <dt>Esc</dt><dd>pause</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
