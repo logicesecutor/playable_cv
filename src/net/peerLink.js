@@ -7,6 +7,15 @@
 import { NetError } from "./signaling.js";
 import { NetSim } from "./netsim.js";
 
+// The public PeerJS server (0.peerjs.com) silently DROPS signaling messages whose payload doesn't
+// look like PeerJS's own: OFFER needs {sdp, type, connectionId, label, serialization}, ANSWER and
+// CANDIDATE need {type, connectionId}. Extra fields are fine. So every payload is PeerJS-shaped,
+// with our connection id as `connectionId`.
+const PJ = { type: "data", serialization: "binary", reliable: true };
+const browserName = () => (/firefox/i.test(navigator.userAgent) ? "firefox" : /safari/i.test(navigator.userAgent) && !/chrome/i.test(navigator.userAgent) ? "safari" : "chrome");
+/** connection id of a signaling payload (ours, or a stray one) */
+export const signalCid = (payload) => payload?.connectionId;
+
 const CHUNK = 16 * 1024; // safe message size across browsers
 const HIGH_WATER = 1024 * 1024; // pause sending above this much buffered data
 
@@ -40,10 +49,11 @@ export class PeerLink {
     this.fast = null;
     this._pending = []; // remote ICE candidates that arrived before the remote description
     this._lostTimer = 0;
-    this._openTimer = setTimeout(() => this.close("ice-timeout"), o.connectTimeout);
+    this.answered = false; // guest: the host's answer arrived (tells "no answer" from "network blocked")
+    this._openTimer = setTimeout(() => this.close(this.initiator && !this.answered ? "no-answer" : "ice-timeout"), o.connectTimeout);
 
     this.pc.onicecandidate = (e) => {
-      if (e.candidate) this.signaling?.send("CANDIDATE", this.remoteId, { cid: this.cid, candidate: e.candidate.toJSON() });
+      if (e.candidate) this.signaling?.send("CANDIDATE", this.remoteId, { candidate: e.candidate.toJSON(), type: PJ.type, connectionId: this.cid });
     };
     this.pc.onconnectionstatechange = () => {
       const s = this.pc.connectionState;
@@ -70,20 +80,27 @@ export class PeerLink {
   async call() {
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
-    this.signaling.send("OFFER", this.remoteId, { cid: this.cid, sdp: this.pc.localDescription.toJSON() });
+    this.signaling.send("OFFER", this.remoteId, {
+      sdp: this.pc.localDescription.toJSON(),
+      ...PJ,
+      connectionId: this.cid,
+      label: this.cid,
+      browser: browserName(),
+    });
   }
 
   /** a signaling message from the other side */
   async handleSignal(type, payload) {
-    if (this.isClosed || !payload || payload.cid !== this.cid) return;
+    if (this.isClosed || !payload || signalCid(payload) !== this.cid) return;
     try {
       if (type === "OFFER" && !this.initiator) {
         await this.pc.setRemoteDescription(payload.sdp);
         await this._flushCandidates();
         const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer);
-        this.signaling.send("ANSWER", this.remoteId, { cid: this.cid, sdp: this.pc.localDescription.toJSON() });
+        this.signaling.send("ANSWER", this.remoteId, { sdp: this.pc.localDescription.toJSON(), type: PJ.type, connectionId: this.cid, browser: browserName() });
       } else if (type === "ANSWER" && this.initiator) {
+        this.answered = true;
         await this.pc.setRemoteDescription(payload.sdp);
         await this._flushCandidates();
       } else if (type === "CANDIDATE") {

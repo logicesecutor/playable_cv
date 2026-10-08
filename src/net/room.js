@@ -18,7 +18,7 @@
 // Later milestones add their own messages; anything unknown is handed to `onGameMessage`.
 
 import { Signaling, NetError, randomId } from "./signaling.js";
-import { PeerLink } from "./peerLink.js";
+import { PeerLink, signalCid } from "./peerLink.js";
 import { ClockSync } from "./clock.js";
 
 export const NET_VERSION = 3; // bump when the message format changes: old tabs get a clear error
@@ -136,10 +136,10 @@ export class HostRoom extends BaseRoom {
   _onSignal(m) {
     if (!m.src) return;
     let g = this.guests.get(m.src);
-    if (!g && m.type === "OFFER" && m.payload?.cid) {
+    if (!g && m.type === "OFFER" && signalCid(m.payload)) {
       const link = new PeerLink({
         remoteId: m.src,
-        cid: m.payload.cid,
+        cid: signalCid(m.payload),
         signaling: this.signaling,
         iceServers: this.net.iceServers,
         initiator: false,
@@ -376,7 +376,7 @@ export class GuestRoom extends BaseRoom {
 
       const link = (this.link = new PeerLink({
         remoteId: roomId,
-        cid: randomId(8),
+        cid: `dc_${randomId(10)}`, // PeerJS-style connection id
         signaling: this.signaling,
         iceServers: this.net.iceServers,
         initiator: true,
@@ -402,9 +402,11 @@ export class GuestRoom extends BaseRoom {
       link.onClose = (reason) => {
         if (!settled) {
           fail(
-            reason === "ice-failed" || reason === "ice-timeout"
-              ? new NetError("p2p-blocked", "Found the host but couldn't connect directly. One of your networks blocks peer-to-peer connections (common on corporate or some mobile networks).")
-              : new NetError("closed", "The host closed the connection."),
+            reason === "no-answer"
+              ? new NetError("no-answer", "The host's game didn't answer. Make sure the host's tab is still open (and on the same game version), then try the link again.")
+              : reason === "ice-failed" || reason === "ice-timeout"
+                ? new NetError("p2p-blocked", "Found the host but couldn't connect directly: a firewall or router between you blocks peer-to-peer connections. Try another network (e.g. a phone hotspot) on one side.")
+                : new NetError("closed", "The host closed the connection."),
           );
         } else this._finish(this._closeReason || "host-left", this._closeMessage || "The host left the game.");
       };

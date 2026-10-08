@@ -13,6 +13,10 @@
 //   client {type:"HEARTBEAT"}                         keeps the socket alive
 //   client {type, dst, payload}                       forwarded to `dst` with `src` added
 //   messages for an id that isn't connected are held for 5 s, then {type:"EXPIRE"} goes back
+//
+// Like the public server (0.peerjs.com), payloads that don't look like PeerJS's are dropped
+// silently, so a local test catches what would fail online:
+//   OFFER {sdp, type, connectionId, label, serialization}, ANSWER / CANDIDATE {type, connectionId}
 
 import http from "node:http";
 import crypto from "node:crypto";
@@ -79,6 +83,10 @@ server.on("upgrade", (req, sock) => {
     }
     if (msg.type === "HEARTBEAT") return;
     if (!FORWARDED.has(msg.type)) return;
+    if (!validPayload(msg)) {
+      log("dropped malformed", msg.type, "from", id);
+      return;
+    }
     msg.src = id;
     route(msg);
   });
@@ -90,6 +98,16 @@ server.on("upgrade", (req, sock) => {
   });
   sock.on("error", () => sock.destroy());
 });
+
+/** the shapes the public PeerJS server accepts (checked against 0.peerjs.com) */
+function validPayload(m) {
+  const p = m.payload;
+  const has = (...k) => p && typeof p === "object" && k.every((x) => p[x] !== undefined && p[x] !== null);
+  if (m.type === "OFFER") return has("sdp", "type", "connectionId", "label", "serialization");
+  if (m.type === "ANSWER") return has("sdp", "type", "connectionId");
+  if (m.type === "CANDIDATE") return has("candidate", "type", "connectionId");
+  return false; // LEAVE / EXPIRE from clients aren't relayed by the public server either
+}
 
 function route(msg) {
   const dst = clients.get(msg.dst);
