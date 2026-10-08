@@ -11,7 +11,8 @@
     "extract": "node tools/extract-debug.mjs",
     "sim": "node tools/sim-player.mjs",
     "test:ray": "node tools/test-raycast.mjs",
-    "signal": "node tools/signal-server.mjs"
+    "signal": "node tools/signal-server.mjs",
+    "test:interp": "node tools/test-interp.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.2.108",

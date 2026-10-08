@@ -263,7 +263,7 @@ export class Weapon {
 
 // ------------------------------------------------------------------------------------------------
 
-function buildGun() {
+export function buildGun() {
   const root = new THREE.Group();
   const metal = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.45, metalness: 0.6 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x121317, roughness: 0.6, metalness: 0.4 });

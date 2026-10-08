@@ -5,6 +5,7 @@
 // The guest is always the one that calls (creates the offer); the host answers.
 
 import { NetError } from "./signaling.js";
+import { NetSim } from "./netsim.js";
 
 const CHUNK = 16 * 1024; // safe message size across browsers
 const HIGH_WATER = 1024 * 1024; // pause sending above this much buffered data
@@ -18,8 +19,10 @@ export class PeerLink {
    * @param {RTCIceServer[]} o.iceServers
    * @param {boolean} o.initiator  true on the guest
    * @param {number} o.connectTimeout ms
+   * @param {{lag:number, jitter:number, loss:number} | null} [o.netsim] simulated bad network (testing)
    */
   constructor(o) {
+    this.sim = o.netsim ? new NetSim(o.netsim) : null;
     this.remoteId = o.remoteId;
     this.cid = o.cid;
     this.signaling = o.signaling;
@@ -146,12 +149,18 @@ export class PeerLink {
 
   /** reliable JSON message */
   send(msg) {
-    if (this.rel?.readyState === "open") this.rel.send(JSON.stringify(msg));
+    this._out(this.rel, JSON.stringify(msg), true);
   }
 
   /** best-effort JSON message (player state) */
   sendFast(msg) {
-    if (this.fast?.readyState === "open") this.fast.send(JSON.stringify(msg));
+    this._out(this.fast, JSON.stringify(msg), false);
+  }
+
+  _out(ch, data, reliable) {
+    if (ch?.readyState !== "open") return;
+    if (!this.sim) return ch.send(data);
+    this.sim.send(() => ch.readyState === "open" && ch.send(data), reliable);
   }
 
   /**
@@ -176,7 +185,7 @@ export class PeerLink {
         if (ch.readyState !== "open") throw new NetError("closed", "Connection closed while sending the CV.");
       }
       // slice() copies into a fresh ArrayBuffer: send() can't take a view into a shared one
-      ch.send(bytes.slice(off, Math.min(bytes.length, off + CHUNK)));
+      this._out(ch, bytes.slice(off, Math.min(bytes.length, off + CHUNK)), true);
       onProgress?.(Math.min(bytes.length, off + CHUNK), bytes.length);
     }
   }

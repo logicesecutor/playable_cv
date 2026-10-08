@@ -72,14 +72,21 @@ Each milestone ends with something runnable.
       Player list, join/leave feed, clear errors (dead link, full, version, p2p blocked, broker
       down), host leaving sends everyone back to the start page. `npm run signal` + `?broker=` for
       LAN/offline play. Tested with 2–3 headless Chromium tabs on `example_cv.pdf` (1,745 entities).
-- [ ] **MP2 — See each other.** Player state sync over the "fast" channel, interpolation, avatars,
-      name tags, minimap dots.
+- [x] **MP2 — See each other.** Player state 20×/s over the "fast" channel on a shared host clock,
+      host relays to the other guests, adaptive snapshot interpolation (Hermite + extrapolation).
+      Low-poly soldier avatars in player colour holding the same gun (walk/run, crouch, jump, aim
+      pitch), HTML name tags and minimap dots only in line of sight ("fair" visibility), positional
+      footsteps, ping in the player list, soft push between players, per-guest spawn spots.
+      `?netsim=` simulates a bad network; `npm run test:interp` tests smoothing under 5 networks
+      (error p95 ≈ 0.03 m). Two headless Chromium tabs at 80 ± 40 ms / 5 % loss each way: RTT
+      ~200 ms, guest drawn within p95 0.14 m (0.08 m without netsim), no teleports. Not yet tested
+      over the real internet (`0.peerjs.com` unreachable from the sandbox).
 - [ ] **MP3 — Shared destruction.** Host-validated letter hits/kills broadcast by entity id;
       late-join snapshot of the damaged map.
 - [ ] **MP4 — PvP.** Hitboxes, 100 HP, 25 body / 50 head, regen after 5 s without damage, respawn,
       kill feed, scoreboard.
 - [ ] **MP5 — Match flow + ship.** First to 10 → end screen → rematch on a fresh CV, disconnect
-      handling, ping display, GitHub Pages deploy.
+      handling, GitHub Pages deploy + real remote testing (ping display already done in MP2).
 
 ## Multiplayer architecture
 
@@ -88,13 +95,30 @@ Each milestone ends with something runnable.
   registers a throwaway id, sends an OFFER to it, and drops the broker once the CV has arrived.
 - **One link per guest** (`net/peerLink.js`): the guest offers, the host answers. Channel `rel`
   (reliable, ordered) for events and the PDF (16 KB chunks with backpressure); `fast` (unordered,
-  no retransmits) reserved for player state from MP2.
+  no retransmits) for player state and ping/pong.
 - **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list, and
   will validate hits from MP3 on. Star topology: guests only talk to the host.
-- **Messages** (`rel`, JSON, `NET_VERSION` = 1):
+- **Messages** (JSON, `NET_VERSION` = 2). `rel`:
   `hello {v,name}` → `welcome {you,players,map,pdf}` + PDF bytes, or `reject {reason}` (version, full);
-  `ready {hash,count}` once the guest's map is built; `players` on every change; `kick` (map mismatch);
-  `bye` on leaving. Unknown types go to `onGameMessage` for later milestones.
+  `ready {hash,count}` once the guest's map is built; `players` on every change; `pings {p:[[id,ms]…]}`
+  every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage`.
+  `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
+  state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly,
+  ~110 bytes). Other fast types go to `onFastMessage`.
+- **State sync** (`net/sync.js`, MP2): each client sends its own state at 20 Hz once its intro is over
+  and its clock is synced; the host relays guest states to the other guests (overwriting `i` with
+  the sender's id). ~110 B × 20 Hz per player: with 8 players the host uploads ≈ 1–1.5 Mbit/s.
+- **Shared clock** (`net/clock.js`): the host's `performance.now()` is game time. Guests ping 6× in
+  quick succession then 1/s, take the offset from the lowest-RTT of the last 12 samples, slew ≤ 4 ms
+  per sample (jump if > 250 ms off). Ping shown = median RTT.
+- **Interpolation** (`net/snapshots.js`): remote players are drawn at `now − delay`, delay = lateness
+  EWMA + 2.5 × jitter + 50 ms interval + 10 ms, clamped 60–400 ms (grows fast, shrinks slowly). Cubic
+  Hermite between snapshots using the sent velocities; extrapolate up to 250 ms when packets are
+  missing, then hold; no interpolation across a jump > 4 m. A state gap > 2.5 s shows "connection lost…".
+- **Visibility** ("fair"): every 0.1 s, a remote player counts as seen if its head or chest is in the
+  view frustum and a ray through the collision grid reaches it. Only then are its name tag and
+  minimap dot shown (the avatar itself is always rendered, letters occlude it naturally).
+- **Soft push**: each client only moves itself, sliding out of any other player closer than 2 radii.
 - **Map fingerprint** (`net/mapHash.js`): entity count + FNV-1a hash of kinds, glyph ids and footprints
   rounded to 10 cm. Entity ids are what later sync uses, so a count mismatch kicks the guest; a hash
   mismatch is only logged (JS engines may round differently).
@@ -115,3 +139,5 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run extract -- example_cv.pdf` dumps what the extractor sees;
 `npm run sim -- example_cv.pdf` runs the headless movement/collision test.
 `npm run signal` starts a local signaling server for LAN multiplayer (open the game with `?broker=ws://<ip>:9000`).
+`npm run test:interp` tests remote-player smoothing under simulated networks; `?netsim=lag:80,jitter:40,loss:0.05`
+simulates a bad network in the browser.

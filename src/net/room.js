@@ -8,17 +8,23 @@
 //   host  -> all   {t:"players", players}             whenever the list changes
 //   host  -> guest {t:"kick", reason}                  e.g. its map came out different
 //   either         {t:"bye"}                           leaving on purpose (tab closed, back to menu)
+//   host  -> all   {t:"pings", p:[[id, ms]…]}          every 2 s, for the player list
+//
+// Fast (unreliable) channel:
+//   guest -> host  {t:"ping", c, r}  host -> guest {t:"pong", c, h}   clock sync + round trip
+//   anything else (player states…) goes to `onFastMessage`; the host relays what it wants.
 //
 // Later milestones add their own messages; anything unknown is handed to `onGameMessage`.
 
 import { Signaling, NetError, randomId } from "./signaling.js";
 import { PeerLink } from "./peerLink.js";
+import { ClockSync } from "./clock.js";
 
-export const NET_VERSION = 1; // bump when the message format changes: old tabs get a clear error
+export const NET_VERSION = 2; // bump when the message format changes: old tabs get a clear error
 
 export const PLAYER_COLORS = ["#ff5a36", "#3fa7ff", "#3ddc84", "#ffc53d", "#c77dff", "#ff6fb5", "#40e0d0", "#e8e8f0"];
 
-/** @typedef {{id:number, name:string, color:string, host:boolean, state:"loading"|"in-game"}} PlayerInfo */
+/** @typedef {{id:number, name:string, color:string, host:boolean, state:"loading"|"in-game", ping?:number}} PlayerInfo */
 
 class BaseRoom {
   constructor(net) {
@@ -31,6 +37,7 @@ class BaseRoom {
     /** @type {(text:string) => void} */ this.onNotice = null;
     /** @type {(reason:string, message:string) => void} */ this.onClosed = null;
     /** @type {(msg:any, fromId:number) => void} */ this.onGameMessage = null;
+    /** @type {(msg:any, fromId:number) => void} */ this.onFastMessage = null;
     this._onPageHide = () => this.leave();
     window.addEventListener("pagehide", this._onPageHide);
   }
@@ -46,6 +53,7 @@ class BaseRoom {
   _finish(reason, message) {
     if (this.closed) return;
     this.closed = true;
+    clearInterval(this._pingTimer);
     window.removeEventListener("pagehide", this._onPageHide);
     this.onClosed?.(reason, message);
   }
@@ -80,6 +88,23 @@ export class HostRoom extends BaseRoom {
     /** @type {Map<string, {link:PeerLink, player:PlayerInfo|null}>} remote signaling id -> guest */
     this.guests = new Map();
     this.roomId = "";
+    this._pingTimer = setInterval(() => this._broadcastPings(), 2000);
+  }
+
+  /** the shared game clock (ms): on the host it is just the local clock */
+  now() {
+    return performance.now();
+  }
+
+  get synced() {
+    return true;
+  }
+
+  _broadcastPings() {
+    const p = this.players.filter((pl) => !pl.host).map((pl) => [pl.id, Math.round(pl.ping ?? 0)]);
+    if (!p.length) return;
+    this.broadcast({ t: "pings", p });
+    this._emitPlayers();
   }
 
   async _start() {
@@ -116,6 +141,7 @@ export class HostRoom extends BaseRoom {
         iceServers: this.net.iceServers,
         initiator: false,
         connectTimeout: this.net.connectTimeout,
+        netsim: this.net.netsim,
       });
       g = { link, player: null };
       this.guests.set(m.src, g);
@@ -148,6 +174,28 @@ export class HostRoom extends BaseRoom {
       if (msg.t === "bye") return link.close("closed");
       this.onGameMessage?.(msg, g.player.id);
     };
+    link.onFast = (msg) => {
+      if (!g.player) return;
+      if (msg.t === "ping") {
+        link.sendFast({ t: "pong", c: msg.c, h: performance.now() });
+        if (typeof msg.r === "number") g.player.ping = msg.r;
+        return;
+      }
+      if (g.player.state === "in-game") this.onFastMessage?.(msg, g.player.id);
+    };
+  }
+
+  /** unreliable message to one guest */
+  sendFastTo(id, msg) {
+    for (const g of this.guests.values()) if (g.player?.id === id) return g.link.sendFast(msg);
+  }
+
+  /** unreliable message to every in-game guest except `exceptId` */
+  broadcastFast(msg, exceptId = -1) {
+    const data = msg;
+    for (const g of this.guests.values()) {
+      if (g.player && g.player.state === "in-game" && g.player.id !== exceptId) g.link.sendFast(data);
+    }
   }
 
   async _hello(g, msg) {
@@ -219,6 +267,7 @@ export class HostRoom extends BaseRoom {
     setTimeout(() => links.forEach((l) => l.close("closed")), 200);
     this.guests.clear();
     this.signaling?.close();
+    clearInterval(this._pingTimer);
     this._finish("left", "You closed the room.");
   }
 }
@@ -252,6 +301,29 @@ export class GuestRoom extends BaseRoom {
     this.isHost = false;
     this.link = null;
     this.signaling = null;
+    this.clock = new ClockSync();
+    this._pingTimer = 0;
+  }
+
+  /** the shared game clock (host's ms), estimated from ping / pong */
+  now() {
+    return this.clock.now();
+  }
+
+  get synced() {
+    return this.clock.synced;
+  }
+
+  /** round trip to the host (ms) */
+  get ping() {
+    return this.clock.rtt;
+  }
+
+  _startPinging() {
+    const ping = () => this.link?.sendFast({ t: "ping", c: performance.now(), r: this.clock.synced ? Math.round(this.clock.rtt) : undefined });
+    // a quick burst for a good first estimate, then once a second
+    for (let i = 0; i < 6; i++) setTimeout(ping, i * 120);
+    this._pingTimer = setInterval(ping, 1000);
   }
 
   async _join(roomId, o) {
@@ -286,7 +358,12 @@ export class GuestRoom extends BaseRoom {
         iceServers: this.net.iceServers,
         initiator: true,
         connectTimeout: this.net.connectTimeout,
+        netsim: this.net.netsim,
       }));
+      link.onFast = (msg) => {
+        if (msg.t === "pong") return this.clock.sample(msg.c, msg.h);
+        if (settled) this.onFastMessage?.(msg, 0);
+      };
 
       this.signaling.onMessage = (m) => {
         if (m.src !== roomId) return;
@@ -332,6 +409,7 @@ export class GuestRoom extends BaseRoom {
           // the broker was only needed to set the connection up
           this.signaling.close();
           this.signaling = null;
+          this._startPinging();
           resolve({ room: this, pdfBytes: buf, pdfName: welcome.pdf.name || "cv.pdf", map: welcome.map });
         }
       };
@@ -342,7 +420,13 @@ export class GuestRoom extends BaseRoom {
 
   _onMessage(msg) {
     if (msg.t === "players") {
-      this.players = msg.players;
+      // keep the pings we already know until the next "pings" message
+      const old = new Map(this.players.map((p) => [p.id, p.ping]));
+      this.players = msg.players.map((p) => ({ ...p, ping: p.ping ?? old.get(p.id) }));
+      this._emitPlayers();
+    } else if (msg.t === "pings") {
+      const m = new Map(msg.p);
+      for (const p of this.players) if (m.has(p.id)) p.ping = m.get(p.id);
       this._emitPlayers();
     } else if (msg.t === "bye") {
       this._closeReason = "host-left";
@@ -364,6 +448,10 @@ export class GuestRoom extends BaseRoom {
     this.link?.send(msg);
   }
 
+  sendFast(msg) {
+    this.link?.sendFast(msg);
+  }
+
   leave() {
     if (this.closed) return;
     this._closeReason = "left";
@@ -374,6 +462,7 @@ export class GuestRoom extends BaseRoom {
   }
 
   _teardown() {
+    clearInterval(this._pingTimer);
     this.signaling?.close();
     this.link?.close("closed");
   }

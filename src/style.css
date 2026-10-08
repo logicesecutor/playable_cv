@@ -191,6 +191,23 @@ input[readonly] { font: 12px var(--mono); color: #cfcfd8; }
 #players .you { color: #fff; font-weight: 700; }
 #players .tagline { color: var(--muted); margin-left: auto; padding-left: 10px; }
 
+#nametags { position: absolute; inset: 0; overflow: hidden; }
+.nametag {
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  font: 600 13px/1.2 var(--sans); color: #fff; white-space: nowrap;
+  text-shadow: 0 1px 2px #000, 0 0 6px #000a;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+.nametag .nt-name { padding: 2px 8px 3px; border-bottom: 2px solid var(--c, #fff); background: #0007; border-radius: 4px 4px 0 0; }
+.nametag .nt-note { font: 11px var(--mono); color: #ffc53d; }
+.nametag .nt-note:empty { display: none; }
+
+#players .ping { color: var(--muted); }
+#players .ping.warn { color: #ffc53d; }
+#players .ping.bad { color: #ff6b5a; }
+
 #feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; justify-items: end; }
 #feed li {
   font: 12px var(--mono); color: #f0f0f4;

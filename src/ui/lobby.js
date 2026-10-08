@@ -204,7 +204,15 @@ export class PlayersPanel {
         if (p.id === selfId) name.className = "you";
         const tag = document.createElement("span");
         tag.className = "tagline";
-        tag.textContent = p.state === "loading" ? "joining…" : p.host ? "host" : "";
+        if (p.state === "loading") tag.textContent = "joining…";
+        else if (p.host) tag.textContent = "host";
+        else if (typeof p.ping === "number" && p.ping > 0) {
+          // round trip to the host
+          tag.textContent = `${Math.round(p.ping)} ms`;
+          tag.classList.add("ping");
+          if (p.ping > 250) tag.classList.add("bad");
+          else if (p.ping > 140) tag.classList.add("warn");
+        }
         li.append(dot, name, tag);
         return li;
       }),

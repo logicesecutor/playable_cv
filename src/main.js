@@ -14,6 +14,10 @@ import { Sfx } from "./audio/sfx.js";
 import { Hud } from "./ui/hud.js";
 import { HostRoom, GuestRoom } from "./net/room.js";
 import { brokerFromUrl } from "./net/signaling.js";
+import { netsimFromUrl } from "./net/netsim.js";
+import { NetSync } from "./net/sync.js";
+import { NameTags } from "./ui/nameTags.js";
+import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
 import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl } from "./ui/lobby.js";
 
@@ -24,6 +28,7 @@ function show(name) {
 }
 
 config.net.broker = brokerFromUrl(config.net.broker);
+config.net.netsim = netsimFromUrl(); // developer tool: ?netsim=lag:80,jitter:30,loss:0.05
 
 let game = null; // the running map, if any
 const sfx = new Sfx(); // one audio context for the whole page
@@ -203,6 +208,12 @@ function startGame(pdf, online = {}) {
     intro?.onResize();
   };
   resize();
+  if (online.room) {
+    // guests spawn around the middle of the page, each on their own spot (the host takes the middle)
+    const a = (online.room.selfId / config.net.maxPlayers) * Math.PI * 2;
+    const { W, D } = world.size;
+    world.spawn = findSpawn(world.entities, W, D, config.player.radius, { x: W / 2 + Math.cos(a) * 10, z: D * 0.55 + Math.sin(a) * 10 });
+  }
   intro = new Intro(camera, world, config);
   window.addEventListener("resize", resize);
 
@@ -277,11 +288,17 @@ function startGame(pdf, online = {}) {
   const invite = new InvitePanel();
   const playersPanel = new PlayersPanel();
   const feed = new Feed();
+  const tags = new NameTags($("nametags"));
+  /** @type {NetSync|null} other players: state sync, avatars, name tags */
+  let sync = null;
 
   const wireRoom = (r) => {
+    sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
+    r.onFastMessage = (msg, from) => sync?.onFast(msg, from);
     r.onPlayers = (list) => {
       playersPanel.render(list, r.selfId);
       playersPanel.show(list.length > 1 || !r.isHost);
+      sync?.setPlayers(list);
     };
     r.onNotice = (text) => feed.push(text);
     r.onClosed = (reason, message) => {
@@ -338,6 +355,7 @@ function startGame(pdf, online = {}) {
         setPlaying(true);
       }
     } else {
+      sync?.pushLocal(dt);
       player.update(dt);
       weapon.update(dt);
       hud.debug(player.core.fly ? "NOCLIP (V to exit) · Q/E down/up" : "");
@@ -346,8 +364,9 @@ function startGame(pdf, online = {}) {
     debris.update(dt);
     sparks.update(dt);
     dust.update(dt);
+    sync?.update(dt, playing);
     sfx.updateListener(camera);
-    if (playing) minimap.draw(player.core.x, player.core.z, player.core.yaw);
+    if (playing) minimap.draw(player.core.x, player.core.z, player.core.yaw, sync ? sync.minimapDots() : undefined);
     hud.update(dt);
 
     renderer.render(scene, camera);
@@ -360,6 +379,8 @@ function startGame(pdf, online = {}) {
       disposed = true;
       room?.leave();
       room = null;
+      sync?.dispose();
+      sync = null;
       invite.dispose();
       playersPanel.show(false);
       feed.clear();
@@ -380,6 +401,9 @@ function startGame(pdf, online = {}) {
     scene, camera, world, renderer, config, player, collision, weapon, destruction, map,
     get room() {
       return room;
+    },
+    get sync() {
+      return sync;
     },
   };
 }

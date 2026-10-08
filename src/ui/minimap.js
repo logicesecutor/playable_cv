@@ -16,13 +16,35 @@ export class Minimap {
     this.ctx = canvas.getContext("2d");
   }
 
-  /** @param {number} x @param {number} z world position @param {number} yaw radians (0 = facing -Z) */
-  draw(x, z, yaw) {
+  /**
+   * @param {number} x @param {number} z world position @param {number} yaw radians (0 = facing -Z)
+   * @param {{x:number, z:number, yaw:number, color:string}[]} [others] other players you can see
+   */
+  draw(x, z, yaw, others = []) {
     const { ctx, canvas } = this;
     const sx = canvas.width / this.size.W;
     const sz = canvas.height / this.size.D;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.raster, 0, 0, canvas.width, canvas.height);
+
+    // other players: a dot in their colour with a short facing tick
+    const dpr = devicePixelRatio;
+    for (const o of others) {
+      const ox = o.x * sx, oz = o.z * sz;
+      ctx.strokeStyle = o.color;
+      ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(ox, oz);
+      ctx.lineTo(ox - Math.sin(o.yaw) * 9 * dpr, oz - Math.cos(o.yaw) * 9 * dpr);
+      ctx.stroke();
+      ctx.fillStyle = o.color;
+      ctx.beginPath();
+      ctx.arc(ox, oz, 4.5 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
+    }
 
     const px = x * sx, pz = z * sz;
     const r = 7 * devicePixelRatio;

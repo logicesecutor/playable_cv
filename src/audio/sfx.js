@@ -232,6 +232,22 @@ export class Sfx {
     n.connect(bp).connect(g).connect(this.master);
   }
 
+  /** someone else's footstep, positioned in the world (quieter, and only when close enough) */
+  footstepAt(pos, sprint, listener) {
+    if (!this.ready) return;
+    if (listener && Math.hypot(pos.x - listener.x, pos.z - listener.z) > 45) return;
+    const t = this.ctx.currentTime;
+    const n = this.noiseSource(t, 0.12);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 700 + Math.random() * 500;
+    bp.Q.value = 0.9;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(sprint ? 0.5 : 0.32, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    n.connect(bp).connect(g).connect(this.panner(pos)).connect(this.master);
+  }
+
   land(impact) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;

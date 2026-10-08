@@ -44,7 +44,7 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint) and `room` (the open multiplayer room, if any).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `room` (the open multiplayer room, if any) and `sync` (other players: buffers, avatars, stats).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 
 ## Multiplayer
@@ -63,9 +63,21 @@ network connections at all: the room opens only when you click **Invite friends*
 **Join**: open the link → type a name → **Join game**. The host's browser sends you the original PDF
 and your browser rebuilds the same map from it. The name is remembered in `localStorage`.
 
-**What works now (MP1)**: lobby + shared map. Player list (top left, colour dot, "joining…" / "host"),
-join/leave notices (top right), clean errors (full game, old link, host left, version mismatch).
-Players don't see each other yet, and destruction is still local to each browser (MP2/MP3, see PLAN.md).
+**What works now (MP2)**: lobby + shared map (MP1), and you see each other. Every player is a low-poly
+soldier in their colour holding the same gun (walk/run, crouch, jump, aim pitch), moving smoothly even
+on a laggy connection. Name tags and minimap dots (with a facing tick) appear only while that player is
+in your line of sight, not through letters. Positional footsteps, ping per guest in the player list
+(amber > 140 ms, red > 250 ms), "connection lost…" on a tag after 2.5 s without updates, and a soft
+push so players can't stand inside each other. Guests spawn on their own spot around the middle.
+Destruction is still local to each browser until MP3 (see PLAN.md).
+
+### Testing on a bad connection
+
+Add `?netsim=lag:80,jitter:40,loss:0.05` to the page URL to make a same-computer test behave like the
+internet. It applies to what *that tab sends*, so set it on both tabs (round trip ≈ 2 × lag + jitter).
+`lag`/`jitter` in ms; `loss` drops only fast-channel messages (player state, which may also arrive out
+of order), reliable ones are only delayed, in order. The invite link carries the query string: remove
+it before sharing a real link.
 
 ### Where the link works
 
@@ -110,6 +122,11 @@ into a letter or leaves the page. Use `SEED=7 npm run sim` for a different run.
 `npm run test:ray` fires 3,000 random rays and checks the grid raycast against a brute-force test of
 every letter.
 
+`npm run test:interp` checks remote-player smoothing (`src/net/snapshots.js`): a fake player moves for
+60 s, its state goes through 5 simulated networks (LAN, good internet, bad wifi, awful mobile, stalls)
+and the script fails if the drawn position strays or pops too much. Now: error p95 ≈ 0.03 m in all of
+them, pop p95 < 0.015 m, delay 66–314 ms.
+
 ## Layout
 
 ```
@@ -122,24 +139,31 @@ src/
   world/buildWorld.js   instanced extruded letters, rule walls, paper floor, lights, spawn point
   world/intro.js        top view -> letters rise -> camera swoop
   world/collision.js    spatial grid + circle-vs-letter-outline collision (pure JS)
-  world/layout.js       letter heights, spawn point (pure JS)
+  world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
   player/playerCore.js  movement simulation: accel, jump, gravity, step-up (pure JS)
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip)
-  player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash
+  player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash; buildGun()
+  player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim
   world/destruction.js  letter HP, hit wobble, shattering, burning the ink off the paper
   fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters
   fx/particles.js       sparks and dust (soft points, one draw call each)
-  audio/sfx.js          procedural Web Audio: gun, impacts, crumble, steps, reload
+  audio/sfx.js          procedural Web Audio: gun, impacts, crumble, steps (own + other players'), reload
   ui/hud.js             crosshair hit markers, ammo, CV integrity, toasts
-  ui/minimap.js         page raster + player arrow
-  ui/lobby.js           join screen, invite box (pause card), player list, notice feed, saved nickname
+  ui/minimap.js         page raster + player arrow + dots for other players in sight
+  ui/nameTags.js        HTML name tags projected from 3D over other players
+  ui/lobby.js           join screen, invite box (pause card), player list with ping, notice feed, saved nickname
   net/signaling.js      PeerJS-protocol signaling client over WebSocket, ?broker= override
   net/peerLink.js       one RTCPeerConnection: "rel" (reliable) + "fast" (unreliable) channels, chunked binary
-  net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, leave/kick
+  net/netsim.js         ?netsim= developer network simulator (lag, jitter, loss on what this tab sends)
+  net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, ping/pong, leave/kick
+  net/clock.js          ClockSync: guests estimate the host's clock (shared game time) from ping/pong
+  net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format (pure JS)
+  net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 tools/extract-debug.mjs
 tools/sim-player.mjs
 tools/test-raycast.mjs
+tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
 ```

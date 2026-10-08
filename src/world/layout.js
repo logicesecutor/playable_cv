@@ -10,13 +10,17 @@ export function makeHeightFn(pdf, cfg) {
       : cfg.vectorHeight;
 }
 
-/** Nearest empty spot to the middle of the page, with clearance around it. */
-export function findSpawn(bodies, W, D, radius = 0.35) {
+/**
+ * Nearest empty spot to the middle of the page (or to `center`), with clearance around it.
+ * @param {{x:number, z:number}} [center]
+ */
+export function findSpawn(bodies, W, D, radius = 0.35, center = null) {
   const clearance = Math.max(1.2, radius * 3);
   const blocked = (x, z) =>
     x < 2 || z < 2 || x > W - 2 || z > D - 2 ||
     bodies.some((e) => x > e.box.minX - clearance && x < e.box.maxX + clearance && z > e.box.minZ - clearance && z < e.box.maxZ + clearance);
-  const cx = W / 2, cz = D * 0.55;
+  const cx = center ? Math.min(W - 3, Math.max(3, center.x)) : W / 2;
+  const cz = center ? Math.min(D - 3, Math.max(3, center.z)) : D * 0.55;
   for (let r = 0; r < Math.max(W, D); r += 0.75) {
     const steps = Math.max(1, Math.round((2 * Math.PI * r) / 0.75));
     for (let k = 0; k < steps; k++) {
