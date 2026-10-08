@@ -204,6 +204,8 @@ input[readonly] { font: 12px var(--mono); color: #cfcfd8; }
 .nametag .nt-note { font: 11px var(--mono); color: #ffc53d; }
 .nametag .nt-note:empty { display: none; }
 
+#players .score { color: var(--accent); padding-left: 8px; }
+#players .score:empty { display: none; }
 #players .ping { color: var(--muted); }
 #players .ping.warn { color: #ffc53d; }
 #players .ping.bad { color: #ff6b5a; }

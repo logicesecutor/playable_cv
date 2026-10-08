@@ -191,8 +191,12 @@ export class PlayersPanel {
     this.visible = false;
   }
 
-  /** @param {import("../net/room.js").PlayerInfo[]} players */
-  render(players, selfId) {
+  /**
+   * @param {import("../net/room.js").PlayerInfo[]} players
+   * @param {number} selfId
+   * @param {Map<number, number>} [kills] letters destroyed per player id
+   */
+  render(players, selfId, kills) {
     this.el.replaceChildren(
       ...players.map((p) => {
         const li = document.createElement("li");
@@ -213,7 +217,12 @@ export class PlayersPanel {
           if (p.ping > 250) tag.classList.add("bad");
           else if (p.ping > 140) tag.classList.add("warn");
         }
-        li.append(dot, name, tag);
+        const n = kills?.get(p.id) || 0;
+        const score = document.createElement("span");
+        score.className = "score";
+        score.title = "letters destroyed";
+        score.textContent = n ? `${n} ${n === 1 ? "letter" : "letters"}` : "";
+        li.append(dot, name, score, tag);
         return li;
       }),
     );

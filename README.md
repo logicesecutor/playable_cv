@@ -42,7 +42,7 @@ npm run dev
 
 Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 
-- Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools (`npm run extract`, `npm run sim`)
+- Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
 - `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `room` (the open multiplayer room, if any) and `sync` (other players: buffers, avatars, stats).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
@@ -63,13 +63,17 @@ network connections at all: the room opens only when you click **Invite friends*
 **Join**: open the link → type a name → **Join game**. The host's browser sends you the original PDF
 and your browser rebuilds the same map from it. The name is remembered in `localStorage`.
 
-**What works now (MP2)**: lobby + shared map (MP1), and you see each other. Every player is a low-poly
-soldier in their colour holding the same gun (walk/run, crouch, jump, aim pitch), moving smoothly even
-on a laggy connection. Name tags and minimap dots (with a facing tick) appear only while that player is
-in your line of sight, not through letters. Positional footsteps, ping per guest in the player list
-(amber > 140 ms, red > 250 ms), "connection lost…" on a tag after 2.5 s without updates, and a soft
-push so players can't stand inside each other. Guests spawn on their own spot around the middle.
-Destruction is still local to each browser until MP3 (see PLAN.md).
+**What works now (MP3)**: lobby + shared map (MP1), you see each other (MP2), and letters break for
+everyone. Every player is a low-poly soldier in their colour holding the same gun (walk/run, crouch,
+jump, aim pitch), moving smoothly even on a laggy connection. Name tags and minimap dots (with a facing
+tick) appear only while that player is in your line of sight, not through letters. Positional
+footsteps, ping per guest in the player list (amber > 140 ms, red > 250 ms), "connection lost…" on a
+tag after 2.5 s without updates, and a soft push so players can't stand inside each other. Guests
+spawn on their own spot around the middle.
+Your own shots hit and shatter letters instantly; the host checks them and everyone sees the same
+letters fall (a hit the host refuses puts the letter back, its soot stays on the paper). Late joiners
+get the map with the real damage already on it. The player list shows "N letters" destroyed per
+player. Floor scorch marks and other players' tracers / gunshots come with MP4 (see PLAN.md).
 
 ### Testing on a bad connection
 
@@ -99,6 +103,7 @@ with Google + Cloudflare STUN. All of it lives in `src/config.js` → `net`.
 | "No game at that link…" | The host closed the game or the link is old. Ask for a new one. |
 | "Found the host but couldn't connect directly…" | A network on either side blocks peer-to-peer (corporate, some mobile). Needs a TURN relay in `config.net.iceServers` (none configured yet). |
 | "The matchmaking server (…) didn't answer." | Broker down or unreachable: try later, or run `npm run signal` + `?broker=`. |
+| "The download from the host stalled…" | No CV data for 20 s. The host's connection dropped: try the link again. (A slow download that keeps going never times out.) |
 | "Your browser built a different map…" | The guest's browser extracted a different number of pieces. Use the same browser as the host. |
 
 ## Debug the PDF extraction (Node)
@@ -127,6 +132,12 @@ every letter.
 and the script fails if the drawn position strays or pops too much. Now: error p95 ≈ 0.03 m in all of
 them, pop p95 < 0.015 m, delay 66–314 ms.
 
+`npm run sim:net` tests shared destruction (`src/net/letters.js`): a host, 3 guests and a late joiner
+shoot letters for 60 s at ~630 rpm over a laggy, ordered fake link (guest 3 gets half its hits
+rejected), then every map must match the host's (alive letters, HP, per-player counts). Tune with
+`LAG=`, `JITTER=` (ms) and `SEED=`. Now: 80 ± 40 ms and 200 ± 150 ms both pass, ~1,080 letters
+destroyed, ~315 rejected hits, 127–143 predicted kills undone, 0 mismatches.
+
 ## Layout
 
 ```
@@ -144,7 +155,8 @@ src/
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip)
   player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash; buildGun()
   player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim
-  world/destruction.js  letter HP, hit wobble, shattering, burning the ink off the paper
+  world/destruction.js  letter HP, hit effects + wobble, shattering, burning the ink off the paper;
+                        remote hits, silent kills (late join), revive (refused prediction)
   fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters
   fx/particles.js       sparks and dust (soft points, one draw call each)
   audio/sfx.js          procedural Web Audio: gun, impacts, crumble, steps (own + other players'), reload
@@ -159,11 +171,13 @@ src/
   net/clock.js          ClockSync: guests estimate the host's clock (shared game time) from ping/pong
   net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format (pure JS)
   net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push
+  net/letters.js        LetterNet: shared destruction, predicted hits, host validation, late-join snapshot (pure JS)
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 tools/extract-debug.mjs
 tools/sim-player.mjs
 tools/test-raycast.mjs
 tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
+tools/sim-net.mjs       shared destruction: 5 players on a laggy fake link must end with the host's map (`npm run sim:net`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
 ```

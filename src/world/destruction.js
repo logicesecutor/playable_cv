@@ -26,6 +26,8 @@ export class Destruction {
     this.destroyed = 0;
     this.total = o.world.entities.length;
     this.onDestroyed = null; // (entity, point) => void
+    /** multiplayer: our own bullet hit a letter (already applied locally): (entity, hit, dir) => void */
+    this.onLocalHit = null;
     this.paperCtx = o.pdf.raster.getContext("2d");
     this.paperDirty = false;
     this.paperTimer = 0;
@@ -51,6 +53,26 @@ export class Destruction {
       return "floor";
     }
     const e = hit.body;
+    this.hitFx(e, hit);
+    e.hp -= 1;
+    let result = "hit";
+    if (e.hp <= 0) {
+      this.destroy(e, hit, dir);
+      result = "kill";
+    } else this.wobbling.set(e, 0);
+    this.onLocalHit?.(e, hit, dir);
+    return result;
+  }
+
+  /** someone else's bullet hit a letter: same effects, no HP change (the network sets it) */
+  remoteHit(e, hit) {
+    if (!e.alive) return;
+    this.hitFx(e, hit);
+    this.wobbling.set(e, 0);
+  }
+
+  /** sparks, chips, dust and the impact sound at a bullet hit on letter `e` */
+  hitFx(e, hit) {
     const col = e.color;
     // sparks bounce off along the surface normal
     for (let i = 0; i < 10; i++) {
@@ -78,14 +100,6 @@ export class Destruction {
       this.dust.emit(hit.x, hit.y, hit.z, hit.nx * 1.2 + (Math.random() - 0.5), 0.4 + Math.random() * 0.6, hit.nz * 1.2 + (Math.random() - 0.5), 0.7 + Math.random() * 0.5, 0.25, 0.9, 0.82, 0.8, 0.78, 0.5);
     }
     this.sfx.impact(hit, e.height);
-
-    e.hp -= 1;
-    if (e.hp <= 0) {
-      this.destroy(e, hit, dir);
-      return "kill";
-    }
-    this.wobbling.set(e, 0);
-    return "hit";
   }
 
   floorHit(hit) {
@@ -116,6 +130,7 @@ export class Destruction {
   }
 
   destroy(e, hit, dir) {
+    if (!e.alive) return;
     this.wobbling.delete(e);
     this.collision.kill(e);
     e.mesh.setMatrixAt(e.index, ZERO);
@@ -166,6 +181,28 @@ export class Destruction {
     this.burnPaper(e);
     this.sfx.crumble({ x: cx, y: e.height / 2, z: cz }, e.height);
     this.onDestroyed?.(e, hit);
+  }
+
+  /** gone without a show: letters already destroyed before we joined */
+  silentKill(e) {
+    if (!e.alive) return;
+    this.wobbling.delete(e);
+    this.collision.kill(e);
+    e.mesh.setMatrixAt(e.index, ZERO);
+    e.mesh.instanceMatrix.needsUpdate = true;
+    e.hp = 0;
+    this.destroyed++;
+    this.burnPaper(e);
+  }
+
+  /** undo a kill we predicted but the host refused (the soot on the paper stays) */
+  revive(e) {
+    if (e.alive) return;
+    e.alive = true;
+    e.mesh.setMatrixAt(e.index, e.matrix);
+    e.mesh.instanceMatrix.needsUpdate = true;
+    this.setColor(e, 0);
+    this.destroyed = Math.max(0, this.destroyed - 1);
   }
 
   /** erase the letter's ink from the paper and leave a soot mark */

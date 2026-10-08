@@ -214,6 +214,12 @@ export class NetSync {
     }
   }
 
+  /** last position we heard from a player (host: plausibility check for their hits) */
+  positionOf(id) {
+    const s = this.remotes.get(id)?.buffer.latest;
+    return s ? { x: s.x, z: s.z } : null;
+  }
+
   /** visible remote players for the minimap */
   minimapDots() {
     const out = [];

@@ -29,18 +29,29 @@ export class NetSim {
   /** @param {{lag:number, jitter:number, loss:number}} o */
   constructor(o) {
     this.o = o;
-    this._relNext = 0; // reliable messages must not overtake each other
+    // reliable messages go through one in-order queue: separate timers could overtake each other
+    // (setTimeout rounds delays to whole ms), which would scramble the CV download
+    this._rel = [];
+    this._relTimer = 0;
   }
 
   /** run `fn` later as if it had crossed the network; `reliable` = no loss, keep order */
   send(fn, reliable) {
     const { lag, jitter, loss } = this.o;
-    if (!reliable && Math.random() < loss) return;
-    let at = performance.now() + lag + Math.random() * jitter;
-    if (reliable) {
-      at = Math.max(at, this._relNext);
-      this._relNext = at;
+    const at = performance.now() + lag + Math.random() * jitter;
+    if (!reliable) {
+      if (Math.random() >= loss) setTimeout(fn, at - performance.now());
+      return;
     }
-    setTimeout(fn, Math.max(0, at - performance.now()));
+    const last = this._rel.length ? this._rel[this._rel.length - 1].at : 0;
+    this._rel.push({ at: Math.max(at, last), fn });
+    if (!this._relTimer) this._pump();
+  }
+
+  _pump() {
+    this._relTimer = 0;
+    const now = performance.now();
+    while (this._rel.length && this._rel[0].at <= now) this._rel.shift().fn();
+    if (this._rel.length) this._relTimer = setTimeout(() => this._pump(), Math.max(1, this._rel[0].at - now));
   }
 }

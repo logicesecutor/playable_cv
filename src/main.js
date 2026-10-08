@@ -16,6 +16,7 @@ import { HostRoom, GuestRoom } from "./net/room.js";
 import { brokerFromUrl } from "./net/signaling.js";
 import { netsimFromUrl } from "./net/netsim.js";
 import { NetSync } from "./net/sync.js";
+import { LetterNet } from "./net/letters.js";
 import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
@@ -110,7 +111,7 @@ joinScreen.onJoin = async (name) => {
     if (room.closed) return;
     $("loading-text").textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
     await nextFrame();
-    startGame(pdf, { room, hostMap: res.map, fileName: res.pdfName });
+    startGame(pdf, { room, hostMap: res.map, fileName: res.pdfName, world: res.world });
   } catch (err) {
     console.error(err);
     show("join");
@@ -291,12 +292,46 @@ function startGame(pdf, online = {}) {
   const tags = new NameTags($("nametags"));
   /** @type {NetSync|null} other players: state sync, avatars, name tags */
   let sync = null;
+  /** @type {LetterNet|null} shared destruction: who hit / destroyed which letter */
+  let letters = null;
 
   const wireRoom = (r) => {
     sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
     r.onFastMessage = (msg, from) => sync?.onFast(msg, from);
+
+    letters = new LetterNet({
+      entities: world.entities,
+      isHost: r.isHost,
+      selfId: () => r.selfId,
+      fx: {
+        hit: (e, h) => destruction.remoteHit(e, h),
+        kill: (e, h, dir) => destruction.destroy(e, h, dir),
+        silentKill: (e) => destruction.silentKill(e),
+        revive: (e) => {
+          destruction.revive(e);
+          hud.integrity(destruction);
+        },
+      },
+      toHost: (msg) => r.send(msg),
+      toAll: (msg) => r.broadcast(msg),
+      toOne: (id, msg) => r.sendTo(id, msg),
+      shooterPos: (id) => sync?.positionOf(id) ?? null,
+      maxDist: config.weapon.range + 25,
+    });
+    destruction.onLocalHit = (e, h, dir) => letters?.localHit(e, h, dir);
+    letters.onStats = (kills) => playersPanel.render(r.players, r.selfId, kills);
+    if (r.isHost) {
+      r.snapshotProvider = () => letters.snapshot();
+      r.onGameMessage = (msg, from) => letters?.onMessage(msg, from);
+    } else {
+      // catch up with the letters destroyed before we joined, then replay what came in while loading
+      letters.applySnapshot(online.world);
+      hud.integrity(destruction);
+      r.setGameHandler((msg) => letters?.onMessage(msg, 0));
+    }
+
     r.onPlayers = (list) => {
-      playersPanel.render(list, r.selfId);
+      playersPanel.render(list, r.selfId, letters?.kills);
       playersPanel.show(list.length > 1 || !r.isHost);
       sync?.setPlayers(list);
     };
@@ -365,6 +400,7 @@ function startGame(pdf, online = {}) {
     sparks.update(dt);
     dust.update(dt);
     sync?.update(dt, playing);
+    letters?.update(dt * 1000);
     sfx.updateListener(camera);
     if (playing) minimap.draw(player.core.x, player.core.z, player.core.yaw, sync ? sync.minimapDots() : undefined);
     hud.update(dt);
@@ -381,6 +417,8 @@ function startGame(pdf, online = {}) {
       room = null;
       sync?.dispose();
       sync = null;
+      letters = null;
+      destruction.onLocalHit = null;
       invite.dispose();
       playersPanel.show(false);
       feed.clear();
@@ -404,6 +442,9 @@ function startGame(pdf, online = {}) {
     },
     get sync() {
       return sync;
+    },
+    get letters() {
+      return letters;
     },
   };
 }

@@ -81,10 +81,20 @@ Each milestone ends with something runnable.
       (error p95 ≈ 0.03 m). Two headless Chromium tabs at 80 ± 40 ms / 5 % loss each way: RTT
       ~200 ms, guest drawn within p95 0.14 m (0.08 m without netsim), no teleports. Not yet tested
       over the real internet (`0.peerjs.com` unreachable from the sandbox).
-- [ ] **MP3 — Shared destruction.** Host-validated letter hits/kills broadcast by entity id;
-      late-join snapshot of the damaged map.
+- [x] **MP3 — Shared destruction.** Every player predicts their own shots (instant hit effects and
+      kills), guests batch hits to the host every 50 ms, the host validates them (letter alive,
+      shooter in range) on its authoritative map and batches hits/kills by entity id to everyone; a
+      refused hit revives the letter for its shooter. Late joiners get a snapshot of the damaged map
+      (destroyed ids, HP, counts). "N letters" destroyed per player in the player list. Guest join
+      timeout is now inactivity-based (big CVs on slow uplinks are fine). `npm run sim:net`: host +
+      3 guests + a late joiner shoot 60 s over a laggy link, all maps match the host's at 80 ± 40 and
+      200 ± 150 ms (~1,080 kills, ~315 rejected hits, 0 mismatches). Two headless Chromium tabs at
+      80 ± 40 ms / 5 % loss: guest joined into an already damaged CV with identical state, both fired
+      150 shots at the same letters (2 contested kills went to the host), identical alive letters,
+      HP, integrity and counts on both; a late joiner matched too. Floor scorch marks and remote
+      tracers / gunshots moved to MP4.
 - [ ] **MP4 — PvP.** Hitboxes, 100 HP, 25 body / 50 head, regen after 5 s without damage, respawn,
-      kill feed, scoreboard.
+      kill feed, scoreboard. Also: other players' tracers and gunshots, floor scorch marks shared.
 - [ ] **MP5 — Match flow + ship.** First to 10 → end screen → rematch on a fresh CV, disconnect
       handling, GitHub Pages deploy + real remote testing (ping display already done in MP2).
 
@@ -97,11 +107,16 @@ Each milestone ends with something runnable.
   (reliable, ordered) for events and the PDF (16 KB chunks with backpressure); `fast` (unordered,
   no retransmits) for player state and ping/pong.
 - **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list, and
-  will validate hits from MP3 on. Star topology: guests only talk to the host.
-- **Messages** (JSON, `NET_VERSION` = 2). `rel`:
-  `hello {v,name}` → `welcome {you,players,map,pdf}` + PDF bytes, or `reject {reason}` (version, full);
+  validates letter hits (MP3). Star topology: guests only talk to the host.
+- **Messages** (JSON, `NET_VERSION` = 3). `rel`:
+  `hello {v,name}` → `welcome {you,players,map,pdf,world}` + PDF bytes, or `reject {reason}` (version,
+  full); `world` = destruction snapshot `{dead:[id…], hp:[[id,hp]…], kills:[[player,n]…]}`;
   `ready {hash,count}` once the guest's map is built; `players` on every change; `pings {p:[[id,ms]…]}`
-  every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage`.
+  every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage` (a guest
+  queues them while its map loads and replays them on `setGameHandler`).
+  Destruction (MP3): `hits {h:[[id, px,py,pz, nx,ny,nz, dx,dy,dz]…]}` guest → host every 50 ms;
+  `dmg {e:[[type, id, by, hp, px,py,pz, a,b,c]…]}` host → all every 50 ms (type 0 hit, `a,b,c` = surface
+  normal; 1 kill, `a,b,c` = bullet direction); `hitNo {id,hp}` host → shooter for a refused hit.
   `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
   state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly,
   ~110 bytes). Other fast types go to `onFastMessage`.
@@ -119,6 +134,15 @@ Each milestone ends with something runnable.
   view frustum and a ray through the collision grid reaches it. Only then are its name tag and
   minimap dot shown (the avatar itself is always rendered, letters occlude it naturally).
 - **Soft push**: each client only moves itself, sliding out of any other player closer than 2 radii.
+- **Shared destruction** (`net/letters.js`, MP3): `Destruction.bullet` predicts our own shot (effects,
+  HP − 1, shatter at once if it kills) then calls `onLocalHit`. The host accepts a guest's hit only if
+  the letter is still alive and the shooter's last known position is within weapon range + 25 m,
+  applies it to its own (authoritative) map and broadcasts the result. Guests play others' hits, shatter
+  kills unless already gone (own prediction), and only lower HP to the host's value (own hits may still
+  be in flight). `hitNo` revives a letter predicted dead (soot stays). Late join: the host takes the
+  snapshot *before* registering the guest, flushing pending events to the others first, so nothing is
+  missed or applied twice; the guest applies it with silent kills (no shards). `netsim` sends reliable
+  messages through one in-order queue (separate timers could overtake each other).
 - **Map fingerprint** (`net/mapHash.js`): entity count + FNV-1a hash of kinds, glyph ids and footprints
   rounded to 10 cm. Entity ids are what later sync uses, so a count mismatch kicks the guest; a hash
   mismatch is only logged (JS engines may round differently).
@@ -139,5 +163,5 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run extract -- example_cv.pdf` dumps what the extractor sees;
 `npm run sim -- example_cv.pdf` runs the headless movement/collision test.
 `npm run signal` starts a local signaling server for LAN multiplayer (open the game with `?broker=ws://<ip>:9000`).
-`npm run test:interp` tests remote-player smoothing under simulated networks; `?netsim=lag:80,jitter:40,loss:0.05`
-simulates a bad network in the browser.
+`npm run test:interp` tests remote-player smoothing under simulated networks; `npm run sim:net` tests shared
+destruction (`LAG=`, `JITTER=`, `SEED=`); `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser.

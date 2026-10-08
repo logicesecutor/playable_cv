@@ -2,7 +2,8 @@
 // invite link, accepts guests, sends them the CV and keeps the player list.
 //
 //   guest -> host  {t:"hello", v, name}
-//   host  -> guest {t:"welcome", you, players, map:{hash,count}, pdf:{size,name}}  + PDF bytes (binary)
+//   host  -> guest {t:"welcome", you, players, map:{hash,count}, pdf:{size,name}, world}  + PDF bytes (binary)
+//                  (`world` = the game's catch-up snapshot, e.g. letters already destroyed)
 //                  {t:"reject", reason}
 //   guest -> host  {t:"ready", hash, count}           once its map is built from the PDF
 //   host  -> all   {t:"players", players}             whenever the list changes
@@ -20,7 +21,7 @@ import { Signaling, NetError, randomId } from "./signaling.js";
 import { PeerLink } from "./peerLink.js";
 import { ClockSync } from "./clock.js";
 
-export const NET_VERSION = 2; // bump when the message format changes: old tabs get a clear error
+export const NET_VERSION = 3; // bump when the message format changes: old tabs get a clear error
 
 export const PLAYER_COLORS = ["#ff5a36", "#3fa7ff", "#3ddc84", "#ffc53d", "#c77dff", "#ff6fb5", "#40e0d0", "#e8e8f0"];
 
@@ -88,6 +89,8 @@ export class HostRoom extends BaseRoom {
     /** @type {Map<string, {link:PeerLink, player:PlayerInfo|null}>} remote signaling id -> guest */
     this.guests = new Map();
     this.roomId = "";
+    /** the game's state for a joining guest (taken before the guest receives any live event) */
+    this.snapshotProvider = null;
     this._pingTimer = setInterval(() => this._broadcastPings(), 2000);
   }
 
@@ -185,6 +188,11 @@ export class HostRoom extends BaseRoom {
     };
   }
 
+  /** reliable message to one guest */
+  sendTo(id, msg) {
+    for (const g of this.guests.values()) if (g.player?.id === id) return g.link.send(msg);
+  }
+
   /** unreliable message to one guest */
   sendFastTo(id, msg) {
     for (const g of this.guests.values()) if (g.player?.id === id) return g.link.sendFast(msg);
@@ -209,6 +217,8 @@ export class HostRoom extends BaseRoom {
       link.send({ t: "reject", reason: "full", message: `This game is full (${this.net.maxPlayers} players).` });
       return setTimeout(() => link.close("rejected"), 500);
     }
+    // snapshot BEFORE this guest is registered: live events from now on reach it after the welcome
+    const world = this.snapshotProvider?.() ?? null;
     const used = new Set(this.players.map((p) => p.color));
     const player = {
       id: this.nextId++,
@@ -225,6 +235,7 @@ export class HostRoom extends BaseRoom {
       players: this.players,
       map: this.map,
       pdf: { size: this.pdfBytes.length, name: this.pdfName },
+      world,
     });
     this._broadcastPlayers();
     this.onNotice?.(`${player.name} is joining…`);
@@ -303,6 +314,13 @@ export class GuestRoom extends BaseRoom {
     this.signaling = null;
     this.clock = new ClockSync();
     this._pingTimer = 0;
+    this._gameQueue = []; // game messages that arrive while the map is still loading
+  }
+
+  /** set the game's message handler and hand it whatever arrived while we were loading */
+  setGameHandler(fn) {
+    this.onGameMessage = fn;
+    for (const m of this._gameQueue.splice(0)) fn(m, 0);
   }
 
   /** the shared game clock (host's ms), estimated from ping / pong */
@@ -346,10 +364,15 @@ export class GuestRoom extends BaseRoom {
         clearTimeout(timer);
         reject(e);
       };
-      const timer = setTimeout(
-        () => fail(new NetError("timeout", "The host didn't answer. They may have closed the game, or a firewall is blocking peer-to-peer connections.")),
-        this.net.connectTimeout + 20000,
-      );
+      // give up when nothing happens for a while (not after a fixed total: a big CV on a slow
+      // uplink may take a while to download, and that's fine as long as it keeps coming)
+      let timer = 0;
+      const arm = (ms, message) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fail(new NetError("timeout", message)), ms);
+      };
+      arm(this.net.connectTimeout + 20000, "The host didn't answer. They may have closed the game, or a firewall is blocking peer-to-peer connections.");
+      const stalled = "The download from the host stalled. Their connection may have dropped; try the link again.";
 
       const link = (this.link = new PeerLink({
         remoteId: roomId,
@@ -392,6 +415,7 @@ export class GuestRoom extends BaseRoom {
           this.selfId = msg.you;
           this.players = msg.players;
           buf = new Uint8Array(msg.pdf.size);
+          arm(20000, stalled);
           status(`Downloading ${msg.pdf.name || "the CV"}…`, 0);
           return;
         }
@@ -402,6 +426,7 @@ export class GuestRoom extends BaseRoom {
         const bytes = new Uint8Array(chunk);
         buf.set(bytes.subarray(0, buf.length - got), got);
         got += bytes.length;
+        arm(20000, stalled);
         status(`Downloading ${welcome.pdf.name || "the CV"}…`, Math.min(1, got / buf.length));
         if (got >= buf.length) {
           settled = true;
@@ -410,7 +435,7 @@ export class GuestRoom extends BaseRoom {
           this.signaling.close();
           this.signaling = null;
           this._startPinging();
-          resolve({ room: this, pdfBytes: buf, pdfName: welcome.pdf.name || "cv.pdf", map: welcome.map });
+          resolve({ room: this, pdfBytes: buf, pdfName: welcome.pdf.name || "cv.pdf", map: welcome.map, world: welcome.world });
         }
       };
 
@@ -436,7 +461,8 @@ export class GuestRoom extends BaseRoom {
       this._closeReason = msg.reason;
       this._closeMessage = msg.message;
       this.link.close("closed");
-    } else this.onGameMessage?.(msg, 0);
+    } else if (this.onGameMessage) this.onGameMessage(msg, 0);
+    else this._gameQueue.push(msg);
   }
 
   /** tell the host our map is built */
