@@ -1,7 +1,9 @@
 // ICE servers: STUN (find your public address) + optional TURN relay for networks where a direct
 // connection is impossible (two strict NATs, corporate firewalls, some mobile carriers).
 //
-// TURN comes from Metered (https://www.metered.ca, free plan: 500 MB/month). The page asks for
+// TURN comes from Metered (https://www.metered.ca, free plan: 500 MB/month), configured either way:
+//   - config.net.turnServers: the ICE servers list copied from the Metered dashboard (simplest), or
+//   - config.net.turn.metered {app, apiKey}: the page asks for
 // short-lived credentials with the front-end API key of a Metered "credential":
 //   GET https://<app>.metered.live/api/v1/turn/credentials?apiKey=<key>   -> [{urls, username, credential}…]
 // That key is meant to be public (it can only fetch relay credentials). Never put the account's
@@ -21,10 +23,13 @@ let cache = null; // {at, list}
  */
 export async function resolveIce(net) {
   const policy = net.forceRelay ? "relay" : "all";
+  // TURN servers pasted straight into the config (Metered's "ICE" button copies such a list)
+  const listed = (net.turnServers || []).filter((s) => s && s.urls);
+  const base = [...net.iceServers, ...listed];
   const m = net.turn?.metered;
-  if (!m?.app || !m?.apiKey) return { iceServers: net.iceServers, relay: false, policy: "all" };
+  if (!m?.app || !m?.apiKey) return { iceServers: base, relay: listed.length > 0, policy: listed.length ? policy : "all" };
   // credentials last a while; reuse them for 10 minutes
-  if (cache && performance.now() - cache.at < 600000) return { iceServers: [...net.iceServers, ...cache.list], relay: true, policy };
+  if (cache && performance.now() - cache.at < 600000) return { iceServers: [...base, ...cache.list], relay: true, policy };
   try {
     const url = `https://${encodeURIComponent(m.app)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(m.apiKey)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout?.(6000) });
@@ -32,10 +37,10 @@ export async function resolveIce(net) {
     const list = (await res.json()).filter((s) => s && (typeof s.urls === "string" || Array.isArray(s.urls)));
     if (!list.length) throw new Error("no servers in the answer");
     cache = { at: performance.now(), list };
-    return { iceServers: [...net.iceServers, ...list], relay: true, policy };
+    return { iceServers: [...base, ...list], relay: true, policy };
   } catch (e) {
     console.warn("[net] couldn't get relay (TURN) credentials, direct connections only:", e?.message || e);
-    return { iceServers: net.iceServers, relay: false, policy: "all" };
+    return { iceServers: base, relay: listed.length > 0, policy: listed.length ? policy : "all" };
   }
 }
 

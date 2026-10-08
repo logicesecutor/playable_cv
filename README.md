@@ -134,23 +134,33 @@ of anyone who goes through it.
 
 ### Relay (TURN)
 
-Without a relay only direct connections work (STUN). The game can fetch relay credentials from
-[Metered](https://www.metered.ca) (free plan: 500 MB/month, no card):
+Without a relay only direct connections work (STUN). With a free [Metered](https://www.metered.ca)
+account (500 MB/month, no card):
 
-1. Create a free Metered account and a TURN app. The app name is the `<app>` in
-   `https://<app>.metered.live` (shown on the dashboard).
-2. In the dashboard, open the TURN credentials and copy a credential's **API key** (the one used in
-   `https://<app>.metered.live/api/v1/turn/credentials?apiKey=…`).
-3. Put both in `src/config.js`:
+1. Sign up at https://dashboard.metered.ca/signup (free plan).
+2. Dashboard → **TURN Server → Credentials** → **Create Credential** (label/region optional) →
+   **Create credential**. A new credential can take up to 2 minutes to start working.
+3. On that credential's row click **ICE**: it copies the ICE servers list (STUN + TURN entries
+   with `username` and `credential`).
+4. Paste the TURN entries into `src/config.js` → `net.turnServers`:
    ```js
-   turn: { metered: { app: "<app>", apiKey: "<credential API key>" } },
+   turnServers: [
+     { urls: "turn:global.relay.metered.ca:80", username: "…", credential: "…" },
+     { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "…", credential: "…" },
+     { urls: "turn:global.relay.metered.ca:443", username: "…", credential: "…" },
+     { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "…", credential: "…" },
+   ],
    ```
-   This key is meant to be public (it can only fetch short-lived relay credentials). **Never put the
-   account's Secret Key there.**
-4. Commit, push, wait for the Action.
-5. Check: open the site with `?relay=1` on both sides (forces every connection through the relay, so
-   it can be tested on one machine): if the guest joins, the relay works.
+   These credentials end up in the public site; that's normal for a browser game (the worst case is
+   someone using up the free 500 MB). If that happens, delete the credential in the dashboard and
+   create a new one. **Never put the account's Secret Key (Developers page) in the code.**
+5. Commit, push, wait for the Action.
+6. Check: open the site with `?relay=1` on both sides (forces every connection through the relay, so
+   it can be tested on one machine): if the guest joins, the relay works. The host's player list
+   shows "· relay" next to anyone connected through it.
 
+Alternative to step 4: `net.turn.metered = { app, apiKey }` with a credential's API key; the page then
+fetches fresh credentials from `https://<app>.metered.live/api/v1/turn/credentials?apiKey=…`.
 Credentials are cached 10 min; the host refreshes them every 9 min for guests who join later. If the
 fetch fails, the game falls back to direct connections only. `?turn=<app>:<key>` uses another
 Metered app for one page load. Only players whose connection needs the relay use it; in a full

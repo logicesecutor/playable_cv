@@ -72,9 +72,18 @@ export const config = {
     // STUN lets browsers behind home routers find each other. Strict networks would also need
     // a TURN relay here: { urls: "turn:…", username: "…", credential: "…" }
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }],
-    // Relay (TURN) for networks where a direct connection is impossible. Free Metered account:
-    // app = the <app> in https://<app>.metered.live, apiKey = a credential's front-end API key
-    // (public by design; NEVER the account's Secret Key). Empty = direct connections only.
+    // Relay (TURN) for networks where a direct connection is impossible (free Metered account).
+    // Simplest: Metered dashboard -> TURN Server -> Credentials -> "ICE" button on a credential,
+    // paste the TURN entries here: [{ urls: "turn:…", username: "…", credential: "…" }, …]
+    turnServers: [
+      { urls: "stun:stun.relay.metered.ca:80" },
+      { urls: "turn:global.relay.metered.ca:80", username: "3936a27c98ffa5cb0c5448f1", credential: "qgD3ndGTM8N75yd9" },
+      { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "3936a27c98ffa5cb0c5448f1", credential: "qgD3ndGTM8N75yd9" },
+      { urls: "turn:global.relay.metered.ca:443", username: "3936a27c98ffa5cb0c5448f1", credential: "qgD3ndGTM8N75yd9" },
+      { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "3936a27c98ffa5cb0c5448f1", credential: "qgD3ndGTM8N75yd9" },
+    ],
+    // Alternative: fetch fresh credentials. app = the <app> in https://<app>.metered.live,
+    // apiKey = a credential's API key. Never the account's Secret Key. Empty = not used.
     turn: { metered: { app: "", apiKey: "" } },
   },
 };
