@@ -25,7 +25,31 @@
         </label>
 
         <p id="upload-error" class="error" role="alert" hidden></p>
-        <p class="fineprint">Runs entirely in your browser. The file never leaves this machine.</p>
+        <p class="fineprint">Runs entirely in your browser. The file only leaves this machine if you invite friends, and then it goes straight to them.</p>
+      </div>
+    </section>
+
+    <!-- Step 1 (guest): opened an invite link -->
+    <section id="join-screen" class="screen" hidden>
+      <div class="upload-card">
+        <p class="tag">multiplayer · invite</p>
+        <h1>Join the&nbsp;CV</h1>
+        <p class="lede">A friend turned their résumé into a map and wants to fight you in it.</p>
+
+        <form id="join-form" class="join-form" autocomplete="off">
+          <label class="field">
+            <span class="field-label">Your name</span>
+            <input id="join-name" name="name" maxlength="20" placeholder="Player" spellcheck="false" />
+          </label>
+          <button id="join-button" class="btn primary" type="submit">Join game</button>
+        </form>
+
+        <div id="join-status" class="join-status" hidden>
+          <div class="bar determinate"><span id="join-progress"></span></div>
+          <p id="join-status-text">Connecting…</p>
+        </div>
+        <p id="join-error" class="error" role="alert" hidden></p>
+        <p class="fineprint"><a id="join-solo" href="./">Or drop your own CV and host a game →</a></p>
       </div>
     </section>
 
@@ -42,12 +66,18 @@
       <canvas id="view"></canvas>
       <div id="hud">
         <div id="crosshair" hidden></div>
-        <canvas id="minimap" width="200" height="283" hidden></canvas>
+        <div id="right-col">
+          <canvas id="minimap" width="200" height="283" hidden></canvas>
+          <ul id="feed" aria-live="polite"></ul>
+        </div>
         <div id="hint" class="hint"></div>
-        <div id="integrity" hidden>
-          <span class="label">CV integrity</span>
-          <span id="integrity-value">100.0%</span>
-          <span id="integrity-count" class="sub"></span>
+        <div id="left-col">
+          <div id="integrity" hidden>
+            <span class="label">CV integrity</span>
+            <span id="integrity-value">100.0%</span>
+            <span id="integrity-count" class="sub"></span>
+          </div>
+          <ul id="players" hidden></ul>
         </div>
         <div id="ammo" hidden>
           <span id="ammo-count">30</span><span class="sub">/ <span id="ammo-max">30</span></span>
@@ -56,6 +86,18 @@
         <div id="pause" hidden>
           <div class="pause-card">
             <p class="pause-title">Click to play</p>
+            <div id="invite" class="invite">
+              <div id="invite-start" class="invite-row">
+                <input id="invite-name" maxlength="20" placeholder="Your name" spellcheck="false" aria-label="Your name" />
+                <button id="invite-button" class="btn primary" type="button">Invite friends</button>
+              </div>
+              <p id="invite-status" class="invite-status" hidden></p>
+              <div id="invite-ready" class="invite-row" hidden>
+                <input id="invite-link" readonly aria-label="Invite link" />
+                <button id="invite-copy" class="btn" type="button">Copy</button>
+              </div>
+              <p id="invite-help" class="invite-help" hidden></p>
+            </div>
             <dl class="keys">
               <dt>WASD</dt><dd>move</dd>
               <dt>Mouse / touchpad</dt><dd>look · hold click to fire</dd>

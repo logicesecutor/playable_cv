@@ -59,4 +59,17 @@ export const config = {
 
   // ---- look
   inkLift: 0.1, // lifts pure black a little so letters show shading
+
+  // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
+  net: {
+    maxPlayers: 8,
+    connectTimeout: 15000, // ms to get a direct connection once the host is found
+    // matchmaking ("signaling") server: only used to introduce the two browsers to each other.
+    // Default: the free public PeerJS server. Override per page load with
+    //   ?broker=ws://192.168.1.20:9000   (e.g. `npm run signal` on your LAN)
+    broker: { host: "0.peerjs.com", port: 443, path: "/", secure: true, key: "peerjs", heartbeat: 5000, openTimeout: 8000 },
+    // STUN lets browsers behind home routers find each other. Strict networks would also need
+    // a TURN relay here: { urls: "turn:…", username: "…", credential: "…" }
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }],
+  },
 };

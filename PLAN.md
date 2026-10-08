@@ -12,7 +12,7 @@ original page becomes the minimap.
 | Camera | **First-person.** Gun view-model in hand, the body is an invisible capsule. |
 | Scale | **Cover height.** Body text is roughly chest-high (you can look and shoot over it). Bigger fonts (the name) are proportionally taller. All of it is tunable in `src/config.js`. |
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
-| Multiplayer | Not now, but world state (which letters are alive) is kept as plain data keyed by letter id, so it can be synced over a socket later. |
+| Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, no TURN yet (strict NATs may fail). 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game. Deployed on GitHub Pages (MP5). |
 
 ## How the PDF becomes geometry
 
@@ -66,8 +66,38 @@ Each milestone ends with something runnable.
       marks, ammo, CV integrity). Left: zoom/rotate minimap option, kill feed, end screen at 0%.
 - [ ] **M9 — Polish.** Multi-page CVs (pages laid side by side), settings panel (scale, height,
       mouse sensitivity), performance pass, restart / load another CV.
-- [ ] **Later — Multiplayer.** Node + WebSocket server, shared letter state, other players as
-      capsules. Separate plan when we get there.
+- [x] **MP1 — Lobby + shared map.** "Invite friends" on the pause card opens a room (only then:
+      single player stays offline) and gives a `#join=pcv-…` link. Guests pick a name, connect
+      peer-to-peer, receive the host's original PDF and rebuild the same map (fingerprint checked).
+      Player list, join/leave feed, clear errors (dead link, full, version, p2p blocked, broker
+      down), host leaving sends everyone back to the start page. `npm run signal` + `?broker=` for
+      LAN/offline play. Tested with 2–3 headless Chromium tabs on `example_cv.pdf` (1,745 entities).
+- [ ] **MP2 — See each other.** Player state sync over the "fast" channel, interpolation, avatars,
+      name tags, minimap dots.
+- [ ] **MP3 — Shared destruction.** Host-validated letter hits/kills broadcast by entity id;
+      late-join snapshot of the damaged map.
+- [ ] **MP4 — PvP.** Hitboxes, 100 HP, 25 body / 50 head, regen after 5 s without damage, respawn,
+      kill feed, scoreboard.
+- [ ] **MP5 — Match flow + ship.** First to 10 → end screen → rematch on a fresh CV, disconnect
+      handling, ping display, GitHub Pages deploy.
+
+## Multiplayer architecture
+
+- **Signaling vs P2P.** `net/signaling.js` speaks the PeerJS server protocol over a WebSocket, only to
+  swap WebRTC offer/answer/ICE. The host registers as `pcv-<id>` (the id in the invite link); a guest
+  registers a throwaway id, sends an OFFER to it, and drops the broker once the CV has arrived.
+- **One link per guest** (`net/peerLink.js`): the guest offers, the host answers. Channel `rel`
+  (reliable, ordered) for events and the PDF (16 KB chunks with backpressure); `fast` (unordered,
+  no retransmits) reserved for player state from MP2.
+- **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list, and
+  will validate hits from MP3 on. Star topology: guests only talk to the host.
+- **Messages** (`rel`, JSON, `NET_VERSION` = 1):
+  `hello {v,name}` → `welcome {you,players,map,pdf}` + PDF bytes, or `reject {reason}` (version, full);
+  `ready {hash,count}` once the guest's map is built; `players` on every change; `kick` (map mismatch);
+  `bye` on leaving. Unknown types go to `onGameMessage` for later milestones.
+- **Map fingerprint** (`net/mapHash.js`): entity count + FNV-1a hash of kinds, glyph ids and footprints
+  rounded to 10 cm. Entity ids are what later sync uses, so a count mismatch kicks the guest; a hash
+  mismatch is only logged (JS engines may round differently).
 
 ## Open questions for later
 
@@ -84,3 +114,4 @@ npm run dev     # opens http://localhost:5173
 Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run extract -- example_cv.pdf` dumps what the extractor sees;
 `npm run sim -- example_cv.pdf` runs the headless movement/collision test.
+`npm run signal` starts a local signaling server for LAN multiplayer (open the game with `?broker=ws://<ip>:9000`).

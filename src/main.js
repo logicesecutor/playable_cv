@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { config } from "./config.js";
-import { loadPdfFile } from "./pdf/loadPdf.js";
+import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
 import { PlayerController } from "./player/playerController.js";
@@ -12,12 +12,24 @@ import { Debris } from "./fx/debris.js";
 import { ParticleSystem } from "./fx/particles.js";
 import { Sfx } from "./audio/sfx.js";
 import { Hud } from "./ui/hud.js";
+import { HostRoom, GuestRoom } from "./net/room.js";
+import { brokerFromUrl } from "./net/signaling.js";
+import { mapFingerprint } from "./net/mapHash.js";
+import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
-const screens = { upload: $("upload-screen"), loading: $("loading-screen"), game: $("game-screen") };
+const screens = { upload: $("upload-screen"), join: $("join-screen"), loading: $("loading-screen"), game: $("game-screen") };
 function show(name) {
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
 }
+
+config.net.broker = brokerFromUrl(config.net.broker);
+
+let game = null; // the running map, if any
+const sfx = new Sfx(); // one audio context for the whole page
+
+/** typing in a text field must not trigger game keys */
+const isTyping = (e) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 
 // ------------------------------------------------------------------ step 1: pick a PDF
 const dropzone = $("dropzone");
@@ -51,6 +63,58 @@ function fail(msg) {
   show("upload");
 }
 
+// ------------------------------------------------------------------ step 1 (guest): opened an invite link
+const joinScreen = new JoinScreen();
+let joining = false;
+
+function route() {
+  if (game || joining) return;
+  if (joinIdFromUrl()) {
+    show("join");
+    joinScreen.focus();
+  } else show("upload");
+}
+window.addEventListener("hashchange", route);
+route();
+
+joinScreen.onJoin = async (name) => {
+  const roomId = joinIdFromUrl();
+  if (!roomId || joining) return;
+  joining = true;
+  sfx.unlock(); // we have a click: audio may start now
+  joinScreen.busy(true);
+  try {
+    const res = await GuestRoom.join(roomId, {
+      name,
+      net: config.net,
+      onStatus: (text, progress) => joinScreen.setStatus(text, progress),
+    });
+    const { room } = res;
+    // the host may leave while we're still building the map
+    room.onClosed = (_reason, message) => {
+      if (!game) {
+        joining = false;
+        show("join");
+        joinScreen.fail(message);
+      }
+    };
+    show("loading");
+    $("loading-text").textContent = "Tracing every glyph of the CV…";
+    await nextFrame();
+    const pdf = await loadPdfBytes(res.pdfBytes, { rasterScale: config.rasterScale });
+    if (room.closed) return;
+    $("loading-text").textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
+    await nextFrame();
+    startGame(pdf, { room, hostMap: res.map, fileName: res.pdfName });
+  } catch (err) {
+    console.error(err);
+    show("join");
+    joinScreen.fail(err?.message || String(err));
+  } finally {
+    joining = false;
+  }
+};
+
 async function start(file) {
   errorEl.hidden = true;
   if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
@@ -68,7 +132,7 @@ async function start(file) {
     }
     status.textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
     await nextFrame();
-    startGame(pdf);
+    startGame(pdf, { fileName: file.name });
     console.info(`[playable-cv] ready in ${(performance.now() - t0).toFixed(0)} ms`, pdf);
   } catch (err) {
     console.error(err);
@@ -79,10 +143,13 @@ async function start(file) {
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
 // ------------------------------------------------------------------ step 2: the map
-let game = null;
-const sfx = new Sfx(); // one audio context for the whole page
 
-function startGame(pdf) {
+/**
+ * @param {any} pdf extracted PDF (+ `bytes`, the original file)
+ * @param {{room?: GuestRoom, hostMap?: {hash:string,count:number}, fileName?: string}} [online]
+ *   `room` is set when we joined someone else's game; otherwise we're the (potential) host
+ */
+function startGame(pdf, online = {}) {
   game?.dispose();
 
   const canvas = $("view");
@@ -99,7 +166,17 @@ function startGame(pdf) {
   const camera = new THREE.PerspectiveCamera(config.fov, 1, 0.1, 3000);
   const world = buildWorld(pdf, config, renderer);
   scene.add(world.root);
-  console.info("[playable-cv] world", world.stats);
+  const map = mapFingerprint(world);
+  console.info("[playable-cv] world", world.stats, "map", map);
+  if (online.room && map.count !== online.hostMap.count) {
+    // ids wouldn't line up with the host's: can't play together
+    online.room.leave();
+    renderer.dispose();
+    return fail(
+      `Your browser built a different map from this CV (${map.count} pieces, the host has ${online.hostMap.count}). ` +
+        "Try opening the link in the same browser the host uses.",
+    );
+  }
 
   // ---- simulation + effects
   const collision = new CollisionWorld(world.entities, world.size);
@@ -155,6 +232,7 @@ function startGame(pdf) {
   hud.setIntro(true);
 
   const skip = (e) => {
+    if (isTyping(e)) return;
     if (intro && !intro.done && (e.type === "pointerdown" || e.code === "Space")) intro.skip();
   };
   canvas.addEventListener("pointerdown", skip);
@@ -176,6 +254,7 @@ function startGame(pdf) {
   };
 
   const onKey = (e) => {
+    if (isTyping(e)) return;
     if (e.code === "KeyI" && intro?.done) {
       // replay the intro (the map keeps its damage)
       setPlaying(false);
@@ -189,7 +268,62 @@ function startGame(pdf) {
 
   player.onLockChanged = (locked) => {
     if (intro.done) pause.hidden = locked;
+    if (locked) document.activeElement?.blur?.(); // don't type WASD into the name field
   };
+
+  // ---- multiplayer
+  /** @type {HostRoom|GuestRoom|null} */
+  let room = online.room || null;
+  const invite = new InvitePanel();
+  const playersPanel = new PlayersPanel();
+  const feed = new Feed();
+
+  const wireRoom = (r) => {
+    r.onPlayers = (list) => {
+      playersPanel.render(list, r.selfId);
+      playersPanel.show(list.length > 1 || !r.isHost);
+    };
+    r.onNotice = (text) => feed.push(text);
+    r.onClosed = (reason, message) => {
+      if (r.isHost || reason === "left") return; // we closed it ourselves
+      // the host is gone: this map is dead, back to the start page
+      leaveToMenu(message);
+    };
+    r.onPlayers(r.players);
+  };
+
+  if (room) {
+    // guest: we joined someone else's game
+    if (map.hash !== online.hostMap.hash) console.warn("[net] map geometry differs slightly from the host's", map, online.hostMap);
+    wireRoom(room);
+    room.ready(map);
+    invite.showLink(location.href, { host: false });
+  } else {
+    // potential host: the room only opens when the player asks for an invite link
+    invite.onInvite = async (name) => {
+      invite.opening();
+      try {
+        const r = await HostRoom.open({ name, pdfBytes: pdf.bytes, pdfName: online.fileName || "cv.pdf", map, net: config.net });
+        if (disposed) return r.leave();
+        room = r;
+        wireRoom(r);
+        invite.showLink(r.inviteUrl, { host: true, maxPlayers: config.net.maxPlayers });
+        console.info("[net] room open", r.roomId);
+      } catch (e) {
+        console.error(e);
+        invite.failed(e?.message || String(e));
+      }
+    };
+  }
+
+  const leaveToMenu = (message) => {
+    game?.dispose();
+    game = null;
+    document.exitPointerLock?.();
+    clearJoinFromUrl();
+    fail(message);
+  };
+  let disposed = false;
 
   const clock = new THREE.Clock();
   let running = true;
@@ -222,6 +356,13 @@ function startGame(pdf) {
 
   game = {
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      room?.leave();
+      room = null;
+      invite.dispose();
+      playersPanel.show(false);
+      feed.clear();
       running = false;
       renderer.setAnimationLoop(null);
       window.removeEventListener("resize", resize);
@@ -235,5 +376,10 @@ function startGame(pdf) {
     },
   };
   // handy for poking at things from the devtools console
-  window.__cv = { scene, camera, world, renderer, config, player, collision, weapon, destruction };
+  window.__cv = {
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map,
+    get room() {
+      return room;
+    },
+  };
 }
