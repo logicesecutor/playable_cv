@@ -70,6 +70,12 @@ export class Debris {
     this.mesh.instanceColor.needsUpdate = true;
   }
 
+  /** remove every shard (rematch on a fresh CV) */
+  clear() {
+    this.n = 0;
+    this.mesh.count = 0;
+  }
+
   /** wake everything resting inside a box (the letter under it just vanished) */
   wake(box) {
     for (let k = 0; k < this.n; k++) {

@@ -48,6 +48,7 @@ export class LetterNet {
   constructor(o) {
     Object.assign(this, o);
     this.maxDist ??= 420;
+    this.round ??= () => 0; // MP5: hits fired in an earlier match are dropped by the host
     this.outHits = []; // guest: hits waiting for the next flush
     this.outEvents = []; // host: results waiting for the next flush
     this.flushT = 0;
@@ -78,6 +79,7 @@ export class LetterNet {
   /** @returns {boolean} true if the message was ours */
   onMessage(msg, fromId) {
     if (this.isHost && msg.t === "hits" && Array.isArray(msg.h)) {
+      if (msg.r !== undefined && msg.r !== this.round()) return true; // from a previous match
       for (const h of msg.h) this._hostApply(h, fromId);
       return true;
     }
@@ -149,13 +151,21 @@ export class LetterNet {
     if (this.flushT > 0) return;
     this.flushT = FLUSH_MS;
     if (this.outHits.length) {
-      this.toHost({ t: "hits", h: this.outHits });
+      this.toHost({ t: "hits", r: this.round(), h: this.outHits });
       this.outHits = [];
     }
     if (this.outEvents.length) {
       this.toAll({ t: "dmg", e: this.outEvents });
       this.outEvents = [];
     }
+  }
+
+  /** rematch: forget everything (the game restores the letters themselves) */
+  reset() {
+    this.outHits = [];
+    this.outEvents = [];
+    this.kills = new Map();
+    this.onStats?.(this.kills);
   }
 
   // ------------------------------------------------------------------ late join

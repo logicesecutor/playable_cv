@@ -12,7 +12,7 @@ original page becomes the minimap.
 | Camera | **First-person.** Gun view-model in hand, the body is an invisible capsule. |
 | Scale | **Cover height.** Body text is roughly chest-high (you can look and shoot over it). Bigger fonts (the name) are proportionally taller. All of it is tunable in `src/config.js`. |
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
-| Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, no TURN yet (strict NATs may fail). 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game. Deployed on GitHub Pages (MP5). |
+| Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
 
 ## How the PDF becomes geometry
 
@@ -107,8 +107,24 @@ Each milestone ends with something runnable.
       tabs at 80 ± 40 ms / 5 % loss: 4 body shots or 2 headshots kill, killcam, kill feed, respawn
       with protection, guest → host hits pass the rewind check, 5/5 remote shots played, identical
       scoreboards; a host with no animation frames still sends ~9 states/s.
-- [ ] **MP5 — Match flow + ship.** First to 10 → end screen → rematch on a fresh CV, disconnect
-      handling, GitHub Pages deploy + real remote testing (ping display already done in MP2).
+- [x] **MP5 — Match flow + ship.** First to 10 kills (host referees) → the same end card on every
+      screen (winner, final table, awards: Demolition / On a roll / Sharpshooter), shooting stops, the
+      camera rises to the top view of the wrecked CV; the host's **Rematch** restores every letter and
+      the clean paper in place (no rebuild), zeroes scores and spreads everyone over the page. Hits from
+      an earlier round are dropped. Match bar "First to 10 · leader · you"; late joiners get the match
+      (and the end card). Drop-outs: a guest lost without "bye" is "away" for 60 s with its score,
+      auto-rejoins with a per-tab key (same id, colour, score, no PDF download, same position); 10 s
+      silence watchdogs both ways; the host re-registers on the broker with the same id + token so
+      the invite link survives. Optional Metered TURN relay (`?relay=1`, `?turn=`, "· relay" in the
+      player list). Shots sent twice with a sequence number. GitHub Pages workflow
+      (`BASE_PATH=/<repo>/`). `NET_VERSION` 4. `npm run sim:match`: 3 matches over a laggy link with
+      instant rematches and late joiners, 21/21 PASS at 80 ± 40 and 200 ± 150 ms. Two headless
+      Chromium browsers at 80 ± 40 ms / 5 % loss: match end + identical end cards + awards, host-only
+      rematch, late joiner on the end card, all letters back and scores zeroed on 3 screens; guest
+      silenced → away within 10 s → auto-rejoin with same id, score and position, no download; broker
+      restarted → new guest joins via the old link; a guest that never returns is removed after ~60 s;
+      earlier milestones re-checked. **Still to do (Christian):** fill in the Metered relay key in
+      `src/config.js`, push to deploy, and the real two-network test (PC + phone on mobile data).
 
 ## Multiplayer architecture
 
@@ -119,25 +135,35 @@ Each milestone ends with something runnable.
   (reliable, ordered) for events and the PDF (16 KB chunks with backpressure); `fast` (unordered,
   no retransmits) for player state and ping/pong.
 - **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list,
-  validates letter hits (MP3) and referees PvP (MP4). Star topology: guests only talk to the host.
-- **Messages** (JSON, `NET_VERSION` = 3). `rel`:
-  `hello {v,name}` → `welcome {you,players,map,pdf,world}` + PDF bytes, or `reject {reason}` (version,
-  full); `world` = `{letters, combat}`: `letters` = destruction snapshot `{dead:[id…], hp:[[id,hp]…],
-  kills:[[player,n]…]}`, `combat` = `[[player, hp, alive, protectedUntil, kills, deaths]…]` (MP4);
-  `ready {hash,count}` once the guest's map is built; `players` on every change; `pings {p:[[id,ms]…]}`
+  validates letter hits (MP3), referees PvP (MP4) and the match (MP5). Star topology: guests only talk to the host.
+- **Messages** (JSON, `NET_VERSION` = 4). `rel`:
+  `hello {v,name,k,have}` (`k` = per-tab rejoin key, `have` = `{hash,count}` of a map the guest already
+  has) → `welcome {you,players,map,pdf,world}` + PDF bytes (`pdf` = null and no bytes when `have`
+  matches), or `reject {reason}` (version, full); `world` = `{letters, combat, match}`: `letters` =
+  destruction snapshot `{dead:[id…], hp:[[id,hp]…], kills:[[player,n]…]}`, `combat` = `[[player, hp,
+  alive, protectedUntil, kills, deaths, streak, best, heads]…]` (MP4/5), `match` = `{p,r,t,w,sc,aw}`
+  (phase, round, target, winner, scores, awards);
+  `ready {hash,count}` once the guest's map is built; `players` on every change (state `loading` /
+  `in-game` / `away`, `route` direct / relay); `pings {p:[[id,ms]…]}`
   every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage` (a guest
   queues them while its map loads and replays them on `setGameHandler`).
-  Destruction (MP3): `hits {h:[[id, px,py,pz, nx,ny,nz, dx,dy,dz]…]}` guest → host every 50 ms;
+  Destruction (MP3): `hits {r,h:[[id, px,py,pz, nx,ny,nz, dx,dy,dz]…]}` guest → host every 50 ms (`r` =
+  match round, MP5);
   `dmg {e:[[type, id, by, hp, px,py,pz, a,b,c]…]}` host → all every 50 ms (type 0 hit, `a,b,c` = surface
   normal; 1 kill, `a,b,c` = bullet direction); `hitNo {id,hp}` host → shooter for a refused hit.
-  PvP (MP4): `pvp {v,h,d,p:[x,y,z],vt}` shooter → host (victim, headshot, distance, hit point, `vt` =
-  when the shooter saw the victim, host clock); host → all: `hurt {v,by,hp,h,s:[x,z]}` (`s` = shooter
+  PvP (MP4): `pvp {r,v,h,d,p:[x,y,z],vt}` shooter → host (round, victim, headshot, distance, hit point,
+  `vt` = when the shooter saw the victim, host clock); host → all: `hurt {v,by,hp,h,s:[x,z]}` (`s` = shooter
   position for the direction arc), `death {v,by,h}`, 3 s later `respawn {v,x,z,y,u}` (`y` = yaw,
   `u` = end of spawn protection).
+  Match (MP5), host → all: `match {s:"end", r, w, sc:[[id,kills,deaths,letters,heads,best]…],
+  aw:[[key,id,value]…]}` and `match {s:"start", r, u, sp:[[id,x,z,yaw]…]}` (rematch, `u` = end of
+  spawn protection).
   `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
   state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly,
-  ~110 bytes) plus, when we fired since the last state, `x:[[ox,oy,oz, ex,ey,ez, kind]…]` (≤ 12
-  shots; kind 0 miss, 1 floor, 2 letter, 3 player). Other fast types go to `onFastMessage`.
+  ~110 bytes) plus, when we fired recently, `x:[[ox,oy,oz, ex,ey,ez, kind, seq]…]` (kind 0 miss,
+  1 floor, 2 letter, 3 player). Since MP5 each shot rides in two consecutive states; the receiver drops
+  a `seq` it has already seen, so one lost packet no longer hides a gunshot. Other fast types go to
+  `onFastMessage`.
 - **State sync** (`net/sync.js`, MP2): each client sends its own state at 20 Hz once its intro is over
   and its clock is synced; the host relays guest states to the other guests (overwriting `i` with
   the sender's id). ~110 B × 20 Hz per player: with 8 players the host uploads ≈ 1–1.5 Mbit/s.
@@ -171,7 +197,36 @@ Each milestone ends with something runnable.
   history comes from relayed state messages + its own player. Shots ride in the next 20 Hz state
   (`x`) and are played when the delayed avatar reaches that moment, so tracer and gun line up.
   Browsers stop animation frames in hidden tabs, so a 100 ms timer keeps sending states and updating
-  letters + combat whenever frames stop (a host can switch tabs). `NET_VERSION` stays 3.
+  letters + combat whenever frames stop (a host can switch tabs). `NET_VERSION` stayed 3 in MP4.
+- **Match + rounds** (`net/match.js` pure JS, glue in `game/pvp.js`, HUD in `ui/matchHud.js`, MP5): the
+  host runs `Match.check` after every kill; at `killTarget` it sends `match end` (winner, final rows,
+  awards computed by `results()`) and every client disables combat (`combat.enabled = false`), blocks
+  the weapon and flies the camera to the top view. The host's Rematch bumps the round and sends
+  `match start` with spawns spread over the page; everyone runs `Destruction.resetAll` (letters + paper
+  from the pristine raster copy `pdf.rasterClean`, `Debris.clear`), `LetterNet.reset`,
+  `Combat.resetRound`. Guest `hits` and `pvp` carry `r`; the host drops any from an earlier round. All
+  of it goes over the reliable, ordered channel, so a guest sees the last kill before the end.
+- **Drop-outs + rejoin** (`net/room.js`, MP5): both sides close a link with no traffic for 10 s
+  (`PeerLink.lastRecv`; test switch `link.blackhole`). A guest that closes without `bye` stays in the
+  list as `away` for 60 s (score kept, no avatar), then is removed. The guest side gets reason `lost`
+  and retries `GuestRoom.join` every 2 s for 60 s with the same `rejoinKey(roomId)` (sessionStorage)
+  and `have` = its map, then rebuilds the game from the same pdf without intro, at the same position.
+  The host matches the key to the away player (same id, colour, score) and retires any stale link. If
+  the broker says the room is gone: "The host left the game."
+- **Broker reconnect** (MP5): the host keeps its room id and signaling token; when the broker socket
+  drops it reconnects with backoff 1 s → 30 s (notices in the feed), so the invite link keeps working.
+  Guests already in never need the broker.
+- **Relay (TURN)** (`net/ice.js`, MP5): with `config.net.turn.metered {app, apiKey}` set, both sides
+  fetch `https://<app>.metered.live/api/v1/turn/credentials?apiKey=<key>` (free plan, 500 MB/month;
+  the credential key is public by design, never the Secret Key), cached 10 min, host refresh every
+  9 min, fallback to STUN only on error. `?relay=1` sets `iceTransportPolicy: "relay"`, `?turn=<app>:<key>`
+  overrides per page load. The host reads the selected candidate pair (`routeOf`, getStats) and shows
+  "· relay" + a notice. The p2p error text depends on whether a relay was configured. Key not filled
+  in yet.
+- **Deploy** (MP5): `.github/workflows/deploy-pages.yml` builds on push to `main` (or by hand) with
+  `BASE_PATH=/<repo>/` (`vite.config.js` `base`) and publishes `dist/` to GitHub Pages
+  (https://logicesecutor.github.io/playable_cv/). One-time: repo public, Pages source "GitHub Actions".
+  Claude commits locally only; Christian pushes.
 - **Map fingerprint** (`net/mapHash.js`): entity count + FNV-1a hash of kinds, glyph ids and footprints
   rounded to 10 cm. Entity ids are what later sync uses, so a count mismatch kicks the guest; a hash
   mismatch is only logged (JS engines may round differently).
@@ -179,7 +234,8 @@ Each milestone ends with something runnable.
 ## Open questions for later
 
 - Multi-page PDFs: pages side by side, or one level per page?
-- Any win condition / score (e.g. "destroy the whole Skills section"), or pure sandbox?
+- Single player win condition (e.g. "destroy the whole Skills section"), or pure sandbox? (Multiplayer
+  has deathmatch to 10 since MP5.)
 
 ## Run it
 
@@ -193,4 +249,6 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run sim -- example_cv.pdf` runs the headless movement/collision test.
 `npm run signal` starts a local signaling server for LAN multiplayer (open the game with `?broker=ws://<ip>:9000`).
 `npm run test:interp` tests remote-player smoothing under simulated networks; `npm run sim:net` tests shared
-destruction and `npm run sim:pvp` player vs player (`LAG=`, `JITTER=`, `SEED=`); `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser.
+destruction, `npm run sim:pvp` player vs player and `npm run sim:match` the match flow (`LAG=`, `JITTER=`, `SEED=`);
+`?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser, `?target=3` shortens matches,
+`?relay=1` / `?turn=<app>:<key>` test the TURN relay. `npm run build` builds the site (GitHub Pages: see the README).

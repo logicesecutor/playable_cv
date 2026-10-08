@@ -26,6 +26,7 @@ export class PeerLink {
    * @param {string} o.cid         connection id, so stray signals from an old attempt are ignored
    * @param {import("./signaling.js").Signaling} o.signaling
    * @param {RTCIceServer[]} o.iceServers
+   * @param {RTCIceTransportPolicy} [o.policy] "relay" forces the TURN relay (testing)
    * @param {boolean} o.initiator  true on the guest
    * @param {number} o.connectTimeout ms
    * @param {{lag:number, jitter:number, loss:number} | null} [o.netsim] simulated bad network (testing)
@@ -44,7 +45,11 @@ export class PeerLink {
     /** @type {(buf:ArrayBuffer) => void} */ this.onBinary = null;
     /** @type {(msg:any) => void} */ this.onFast = null;
 
-    this.pc = new RTCPeerConnection({ iceServers: o.iceServers });
+    this.pc = new RTCPeerConnection({ iceServers: o.iceServers, iceTransportPolicy: o.policy || "all" });
+    /** performance.now() of the last message received on either channel (watchdogs) */
+    this.lastRecv = performance.now();
+    /** testing: drop everything in both directions, like a dead Wi-Fi */
+    this.blackhole = false;
     this.rel = null;
     this.fast = null;
     this._pending = []; // remote ICE candidates that arrived before the remote description
@@ -129,6 +134,8 @@ export class PeerLink {
       this.rel = ch;
       ch.bufferedAmountLowThreshold = HIGH_WATER / 4;
       ch.onmessage = (e) => {
+        if (this.blackhole) return;
+        this.lastRecv = performance.now();
         if (typeof e.data === "string") {
           let msg;
           try {
@@ -142,6 +149,8 @@ export class PeerLink {
     } else if (ch.label === "fast") {
       this.fast = ch;
       ch.onmessage = (e) => {
+        if (this.blackhole) return;
+        this.lastRecv = performance.now();
         if (typeof e.data !== "string") return;
         try {
           this.onFast?.(JSON.parse(e.data));
@@ -159,6 +168,7 @@ export class PeerLink {
     if (this.isOpen || this.isClosed) return;
     if (this.rel?.readyState === "open" && this.fast?.readyState === "open") {
       this.isOpen = true;
+      this.lastRecv = performance.now();
       clearTimeout(this._openTimer);
       this.onOpen?.();
     }
@@ -175,7 +185,7 @@ export class PeerLink {
   }
 
   _out(ch, data, reliable) {
-    if (ch?.readyState !== "open") return;
+    if (ch?.readyState !== "open" || this.blackhole) return;
     if (!this.sim) return ch.send(data);
     this.sim.send(() => ch.readyState === "open" && ch.send(data), reliable);
   }

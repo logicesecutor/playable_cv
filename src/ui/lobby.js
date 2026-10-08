@@ -25,6 +25,24 @@ export function joinIdFromUrl(loc = location) {
   return m ? m[1].toLowerCase() : null;
 }
 
+/**
+ * Per-tab key for a room: a guest that drops and comes back with it gets its place and score back.
+ * sessionStorage: survives a reload of the same tab, not shared with other tabs.
+ */
+export function rejoinKey(roomId) {
+  const k = `playable-cv:key:${roomId}`;
+  try {
+    let v = sessionStorage.getItem(k);
+    if (!v) {
+      v = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+      sessionStorage.setItem(k, v);
+    }
+    return v;
+  } catch {
+    return "";
+  }
+}
+
 /** forget the invite in the address bar (keeps ?broker=… and friends) */
 export function clearJoinFromUrl() {
   history.replaceState(null, "", location.pathname + location.search);
@@ -209,10 +227,14 @@ export class PlayersPanel {
         const tag = document.createElement("span");
         tag.className = "tagline";
         if (p.state === "loading") tag.textContent = "joining…";
+        else if (p.state === "away") {
+          tag.textContent = "reconnecting…";
+          tag.classList.add("ping", "warn");
+        }
         else if (p.host) tag.textContent = "host";
         else if (typeof p.ping === "number" && p.ping > 0) {
           // round trip to the host
-          tag.textContent = `${Math.round(p.ping)} ms`;
+          tag.textContent = `${Math.round(p.ping)} ms${p.route === "relay" ? " · relay" : ""}`;
           tag.classList.add("ping");
           if (p.ping > 250) tag.classList.add("bad");
           else if (p.ping > 140) tag.classList.add("warn");

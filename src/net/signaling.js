@@ -33,13 +33,18 @@ export class Signaling {
   }
 
   /** Connect with the given id. Resolves once the server accepts it. */
-  connect(id) {
+  /**
+   * @param {string} id
+   * @param {string} [token] the same token reclaims the same id after a dropped connection
+   */
+  connect(id, token = randomId(12)) {
     this.id = id;
+    this.token = token;
     const b = this.broker;
     const path = b.path.endsWith("/") ? b.path : b.path + "/";
     const url =
       `${b.secure ? "wss" : "ws"}://${b.host}:${b.port}${path}peerjs` +
-      `?key=${encodeURIComponent(b.key)}&id=${encodeURIComponent(id)}&token=${randomId(12)}&version=${PROTOCOL_VERSION}`;
+      `?key=${encodeURIComponent(b.key)}&id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}&version=${PROTOCOL_VERSION}`;
 
     return new Promise((resolve, reject) => {
       let settled = false;

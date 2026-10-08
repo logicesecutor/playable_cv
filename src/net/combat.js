@@ -12,6 +12,9 @@
 //     which also ends as soon as that player shoots).
 //   - Health regenerates at 8 HP/s after 5 s without damage, on the host and (for display) on
 //     each client with the same rule. Every hurt message carries the host's exact value.
+//   - MP5: `enabled` is false between matches (no damage, no respawns). Guest hits carry the match
+//     round `r`; the host drops hits fired in an earlier round (still in flight at a rematch).
+//     Per player we also count the kill streak, best streak and headshot kills (end-of-match awards).
 
 export const COMBAT = {
   maxHp: 100,
@@ -79,6 +82,9 @@ export class Combat {
   constructor(o) {
     Object.assign(this, o);
     this.cfg ??= COMBAT;
+    this.round ??= () => 0;
+    /** false between matches: no damage, no respawns */
+    this.enabled = true;
     /** @type {Map<number, {hp:number, alive:boolean, prot:number, lastHurt:number, kills:number, deaths:number, respawnAt:number}>} */
     this.players = new Map();
     /** @type {Map<number, History>} host: recent positions */
@@ -97,7 +103,7 @@ export class Combat {
   syncPlayers(ids) {
     const keep = new Set(ids);
     for (const id of ids) {
-      if (!this.players.has(id)) this.players.set(id, { hp: this.cfg.maxHp, alive: true, prot: 0, lastHurt: -1e9, kills: 0, deaths: 0, respawnAt: 0 });
+      if (!this.players.has(id)) this.players.set(id, fresh(this.cfg));
     }
     for (const id of [...this.players.keys()]) {
       if (!keep.has(id)) {
@@ -131,8 +137,9 @@ export class Combat {
    */
   localHit(h) {
     const self = this.selfId();
+    if (!this.enabled) return;
     if (this.isHost) this._hostApply(self, h.victim, h.head, h.dist, h.point, h.viewTime, true);
-    else this.toHost({ t: "pvp", v: h.victim, h: h.head ? 1 : 0, d: r2(h.dist), p: [r2(h.point.x), r2(h.point.y), r2(h.point.z)], vt: Math.round(h.viewTime) });
+    else this.toHost({ t: "pvp", r: this.round(), v: h.victim, h: h.head ? 1 : 0, d: r2(h.dist), p: [r2(h.point.x), r2(h.point.y), r2(h.point.z)], vt: Math.round(h.viewTime) });
   }
 
   // ------------------------------------------------------------------ network
@@ -141,6 +148,11 @@ export class Combat {
     if (this.isHost) {
       if (msg.t !== "pvp") return false;
       if (!Array.isArray(msg.p) || msg.p.length !== 3 || !msg.p.every(Number.isFinite) || !Number.isFinite(msg.d) || !Number.isFinite(msg.vt)) return true;
+      if (msg.r !== undefined && msg.r !== this.round()) {
+        this.rejected++;
+        this.rejectedBy.round = (this.rejectedBy.round || 0) + 1;
+        return true; // fired in a previous match
+      }
       this._hostApply(from, msg.v, !!msg.h, msg.d, { x: msg.p[0], y: msg.p[1], z: msg.p[2] }, msg.vt, false);
       return true;
     }
@@ -158,9 +170,8 @@ export class Combat {
       if (p) {
         p.hp = 0;
         p.alive = false;
-        p.deaths++;
       }
-      if (k && msg.by !== msg.v) k.kills++;
+      tally(p, msg.by !== msg.v ? k : null, !!msg.h);
       this.fx.died(msg.v, msg.by, !!msg.h);
       this.fx.stats?.();
       return true;
@@ -180,6 +191,10 @@ export class Combat {
   }
 
   _hostApply(by, v, head, dist, point, viewTime, trusted) {
+    if (!this.enabled) {
+      this.rejected++;
+      return;
+    }
     const now = this.now();
     const shooter = this.players.get(by), victim = this.players.get(v);
     if (!shooter || !victim || v === by || !shooter.alive || !victim.alive || victim.prot > now) {
@@ -208,8 +223,7 @@ export class Combat {
     const from = this.hist.get(by)?.at(now);
     if (victim.hp <= 0) {
       victim.alive = false;
-      victim.deaths++;
-      shooter.kills++;
+      tally(victim, shooter, head);
       victim.respawnAt = now + this.cfg.respawnDelay * 1000;
       this.toAll({ t: "death", v, by, h: head ? 1 : 0 });
       this.fx.died(v, by, head);
@@ -230,7 +244,7 @@ export class Combat {
     const c = this.cfg;
     for (const [id, p] of this.players) {
       if (p.alive && p.hp < c.maxHp && now - p.lastHurt > c.regenDelay * 1000) p.hp = Math.min(c.maxHp, p.hp + c.regenRate * dt);
-      if (this.isHost && !p.alive && p.respawnAt && now >= p.respawnAt) {
+      if (this.isHost && this.enabled && !p.alive && p.respawnAt && now >= p.respawnAt) {
         const s = this.spawnFor(id);
         p.alive = true;
         p.hp = c.maxHp;
@@ -243,16 +257,64 @@ export class Combat {
     }
   }
 
+  // ------------------------------------------------------------------ rematch (MP5)
+  /**
+   * New match: everyone alive at full HP, scores zeroed, spawn protection until `protUntil`.
+   * (The respawn positions are the match module's business.)
+   */
+  resetRound(protUntil) {
+    for (const p of this.players.values()) {
+      Object.assign(p, fresh(this.cfg));
+      p.prot = protUntil;
+    }
+    this.hist.clear();
+    this.enabled = true;
+    this.fx.stats?.();
+  }
+
+  // ------------------------------------------------------------------ reconnect (MP5)
+  /** host: a guest dropped; keep its numbers so it can come back */
+  exportStats(id) {
+    const p = this.players.get(id);
+    return p ? { kills: p.kills, deaths: p.deaths, streak: 0, best: p.best, heads: p.heads } : null;
+  }
+
+  /** host: the guest came back under the same id */
+  importStats(id, s) {
+    const p = this.players.get(id);
+    if (!p || !s) return;
+    Object.assign(p, { kills: s.kills, deaths: s.deaths, streak: 0, best: s.best, heads: s.heads });
+    this.fx.stats?.();
+  }
+
   // ------------------------------------------------------------------ late join
   snapshot() {
-    return [...this.players].map(([id, p]) => [id, Math.round(p.hp * 10) / 10, p.alive ? 1 : 0, Math.round(p.prot), p.kills, p.deaths]);
+    return [...this.players].map(([id, p]) => [id, Math.round(p.hp * 10) / 10, p.alive ? 1 : 0, Math.round(p.prot), p.kills, p.deaths, p.streak, p.best, p.heads]);
   }
 
   applySnapshot(rows) {
     if (!Array.isArray(rows)) return;
-    for (const [id, hp, alive, prot, kills, deaths] of rows) {
-      this.players.set(id, { hp, alive: !!alive, prot, lastHurt: this.now(), kills, deaths, respawnAt: 0 });
+    for (const [id, hp, alive, prot, kills, deaths, streak = 0, best = 0, heads = 0] of rows) {
+      this.players.set(id, { ...fresh(this.cfg), hp, alive: !!alive, prot, lastHurt: this.now(), kills, deaths, streak, best, heads });
     }
     this.fx.stats?.();
+  }
+}
+
+function fresh(c) {
+  return { hp: c.maxHp, alive: true, prot: 0, lastHurt: -1e9, kills: 0, deaths: 0, respawnAt: 0, streak: 0, best: 0, heads: 0 };
+}
+
+/** bookkeeping for a death: victim's deaths, killer's kills / streak / headshot kills */
+function tally(victim, killer, head) {
+  if (victim) {
+    victim.deaths++;
+    victim.streak = 0;
+  }
+  if (killer && killer !== victim) {
+    killer.kills++;
+    killer.streak = (killer.streak || 0) + 1;
+    killer.best = Math.max(killer.best || 0, killer.streak);
+    if (head) killer.heads = (killer.heads || 0) + 1;
   }
 }

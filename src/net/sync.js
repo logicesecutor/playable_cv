@@ -33,6 +33,7 @@ class RemotePlayer {
     this.stepDist = 0;
     this.prev = new THREE.Vector3();
     this.shots = []; // {t, s}: their shots, played back in step with their (delayed) avatar
+    this.seenShots = new Set(); // shot sequence numbers already queued (each shot is sent twice)
     this.revealUntil = 0; // shown on the minimap after shooting, even out of sight
     this.dead = false;
   }
@@ -62,7 +63,10 @@ export class NetSync {
     this._pts = [new THREE.Vector3(), new THREE.Vector3()];
     this._anchor = new THREE.Vector3();
     this.stats = { sent: 0, received: 0 };
-    this.outShots = []; // our shots since the last state message
+    // our recent shots: each one rides in two consecutive state messages, so a single lost packet
+    // on the unreliable channel doesn't make a gunshot vanish (the receiver drops the duplicate)
+    this.outShots = []; // {s:[…, seq], sends}
+    this.shotSeq = 0;
     // hooks for the game (MP4)
     /** @type {(id:number, shot:number[]) => void} play someone's shot (tracer, sound, impact) */
     this.onRemoteShot = null;
@@ -113,14 +117,22 @@ export class NetSync {
     const shots = decodeShots(msg);
     if (shots.length) {
       this.onFired?.(msg.i);
-      for (const s of shots) r.shots.push({ t: snap.t, s });
+      for (const s of shots) {
+        const seq = s[7];
+        if (seq !== undefined) {
+          if (r.seenShots.has(seq)) continue; // the second copy of a shot we already have
+          r.seenShots.add(seq);
+          if (r.seenShots.size > 64) r.seenShots.delete(r.seenShots.values().next().value);
+        }
+        r.shots.push({ t: snap.t, s });
+      }
     }
   }
 
   /** our weapon fired: goes out with the next state message */
   queueShot(from, to, kind) {
     const r2 = (v) => Math.round(v * 100) / 100;
-    if (this.outShots.length < 12) this.outShots.push([r2(from.x), r2(from.y), r2(from.z), r2(to.x), r2(to.y), r2(to.z), kind]);
+    if (this.outShots.length < 12) this.outShots.push({ s: [r2(from.x), r2(from.y), r2(from.z), r2(to.x), r2(to.y), r2(to.z), kind, ++this.shotSeq], sends: 0 });
   }
 
   /** a player died / came back: collapse the soldier, hide tag + dot, ignore for hits */
@@ -166,8 +178,9 @@ export class NetSync {
       const c = this.player.core;
       const sprint = Math.hypot(c.vx, c.vz) > this.cfg.player.walkSpeed + 0.5;
       const flags = (c.crouching ? FLAG.crouch : 0) | (c.grounded ? FLAG.grounded : 0) | (sprint ? FLAG.sprint : 0) | (c.fly ? FLAG.fly : 0);
-      const msg = encodeState(this.room.selfId, this.k++, now, c, flags, this.outShots);
-      this.outShots = [];
+      const msg = encodeState(this.room.selfId, this.k++, now, c, flags, this.outShots.map((o) => o.s));
+      for (const o of this.outShots) o.sends++;
+      this.outShots = this.outShots.filter((o) => o.sends < 2);
       if (this.room.isHost) this.room.broadcastFast(msg);
       else this.room.sendFast(msg);
       this.stats.sent++;

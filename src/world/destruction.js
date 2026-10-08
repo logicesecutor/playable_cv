@@ -29,6 +29,23 @@ export class Destruction {
     /** multiplayer: our own bullet hit a letter (already applied locally): (entity, hit, dir) => void */
     this.onLocalHit = null;
     this.paperCtx = o.pdf.raster.getContext("2d");
+    // MP5: a clean copy of the page, so a rematch can restore the paper (burns, soot, scorches).
+    // Kept on the pdf object: a guest that reconnects rebuilds the map from the same pdf, and its
+    // paper must start clean again.
+    if (!o.pdf.rasterClean) {
+      const c = document.createElement("canvas");
+      c.width = o.pdf.raster.width;
+      c.height = o.pdf.raster.height;
+      c.getContext("2d").drawImage(o.pdf.raster, 0, 0);
+      o.pdf.rasterClean = c;
+    } else {
+      this.paperCtx.save();
+      this.paperCtx.setTransform(1, 0, 0, 1, 0, 0);
+      this.paperCtx.globalCompositeOperation = "copy";
+      this.paperCtx.drawImage(o.pdf.rasterClean, 0, 0);
+      this.paperCtx.restore();
+    }
+    this.paperClean = o.pdf.rasterClean;
     this.paperDirty = false;
     this.paperTimer = 0;
     this._m = new THREE.Matrix4();
@@ -203,6 +220,30 @@ export class Destruction {
     e.mesh.instanceMatrix.needsUpdate = true;
     this.setColor(e, 0);
     this.destroyed = Math.max(0, this.destroyed - 1);
+  }
+
+  /** MP5 rematch: every letter back at full HP, clean paper, no debris */
+  resetAll() {
+    this.wobbling.clear();
+    const meshes = new Set();
+    for (const e of this.world.entities) {
+      e.alive = true;
+      e.hp = e.maxHp;
+      e.mesh.setMatrixAt(e.index, e.matrix);
+      this.setColor(e, 0);
+      meshes.add(e.mesh);
+    }
+    for (const m of meshes) m.instanceMatrix.needsUpdate = true;
+    this.destroyed = 0;
+    const ctx = this.paperCtx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "copy";
+    ctx.drawImage(this.paperClean, 0, 0);
+    ctx.restore();
+    this.world.pageTexture.needsUpdate = true;
+    this.paperDirty = false;
+    this.debris.clear?.();
   }
 
   /** erase the letter's ink from the paper and leave a soot mark */

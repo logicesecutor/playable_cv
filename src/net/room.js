@@ -11,6 +11,12 @@
 //   either         {t:"bye"}                           leaving on purpose (tab closed, back to menu)
 //   host  -> all   {t:"pings", p:[[id, ms]…]}          every 2 s, for the player list
 //
+// MP5, drop-outs: a guest whose connection dies without saying "bye" stays in the list as "away"
+// for 60 s with its score. hello carries a per-tab key `k`; the same key within 60 s gets the same
+// player id back. hello may also carry `have:{hash,count}`: a guest that already has this map
+// (it was here a moment ago) gets no PDF. Both sides close a link that has been silent for 10 s.
+// The host keeps its matchmaking id across broker drops (same token), so the invite link survives.
+//
 // Fast (unreliable) channel:
 //   guest -> host  {t:"ping", c, r}  host -> guest {t:"pong", c, h}   clock sync + round trip
 //   anything else (player states…) goes to `onFastMessage`; the host relays what it wants.
@@ -20,12 +26,16 @@
 import { Signaling, NetError, randomId } from "./signaling.js";
 import { PeerLink, signalCid } from "./peerLink.js";
 import { ClockSync } from "./clock.js";
+import { resolveIce, routeOf } from "./ice.js";
 
-export const NET_VERSION = 3; // bump when the message format changes: old tabs get a clear error
+export const NET_VERSION = 4; // bump when the message format changes: old tabs get a clear error
 
 export const PLAYER_COLORS = ["#ff5a36", "#3fa7ff", "#3ddc84", "#ffc53d", "#c77dff", "#ff6fb5", "#40e0d0", "#e8e8f0"];
 
-/** @typedef {{id:number, name:string, color:string, host:boolean, state:"loading"|"in-game", ping?:number}} PlayerInfo */
+/** @typedef {{id:number, name:string, color:string, host:boolean, state:"loading"|"in-game"|"away", ping?:number, route?:"direct"|"relay"|"unknown"}} PlayerInfo */
+
+const AWAY_MS = 60000; // a dropped guest keeps its place (and score) this long
+const SILENCE_MS = 10000; // a link with no traffic for this long is dead
 
 class BaseRoom {
   constructor(net) {
@@ -55,6 +65,7 @@ class BaseRoom {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this._pingTimer);
+    clearInterval(this._watchdog);
     window.removeEventListener("pagehide", this._onPageHide);
     this.onClosed?.(reason, message);
   }
@@ -91,7 +102,28 @@ export class HostRoom extends BaseRoom {
     this.roomId = "";
     /** the game's state for a joining guest (taken before the guest receives any live event) */
     this.snapshotProvider = null;
-    this._pingTimer = setInterval(() => this._broadcastPings(), 2000);
+    /** player id -> rejoin key (kept here, never broadcast) */
+    this.keys = new Map();
+    this._pingTimer = setInterval(() => {
+      this._broadcastPings();
+      this._expireAway();
+    }, 2000);
+    this._watchdog = watchdog(() => this.guests.values(), (g) => g.link, (g) =>
+      // a guest still building its map (seconds of busy main thread on a slow machine) gets longer
+      g.player?.state === "in-game" ? SILENCE_MS : 60000,
+    );
+  }
+
+  _expireAway() {
+    const now = performance.now();
+    const gone = this.players.filter((p) => p.state === "away" && p.awayUntil <= now);
+    if (!gone.length) return;
+    this.players = this.players.filter((p) => !gone.includes(p));
+    for (const p of gone) {
+      this.keys.delete(p.id);
+      this.onNotice?.(`${p.name} left`);
+    }
+    this._broadcastPlayers();
   }
 
   /** the shared game clock (ms): on the host it is just the local clock */
@@ -111,6 +143,9 @@ export class HostRoom extends BaseRoom {
   }
 
   async _start() {
+    this.ice = await resolveIce(this.net);
+    // relay credentials don't last forever: refresh them for guests who join later
+    this._iceTimer = this.ice.relay ? setInterval(async () => (this.ice = await resolveIce(this.net)), 9 * 60000) : 0;
     for (let attempt = 0; ; attempt++) {
       this.signaling = new Signaling(this.net.broker);
       this.roomId = `pcv-${randomId(10)}`;
@@ -121,9 +156,43 @@ export class HostRoom extends BaseRoom {
         if (e.code !== "id-taken" || attempt >= 3) throw e;
       }
     }
+    this.token = this.signaling.token;
+    this._wireSignaling();
+  }
+
+  _wireSignaling() {
     this.signaling.onMessage = (m) => this._onSignal(m);
-    this.signaling.onClose = () =>
-      this.onNotice?.("Lost the matchmaking server: players already in stay connected, new ones can't join.");
+    this.signaling.onClose = () => this._reconnectBroker();
+  }
+
+  /** the matchmaking server dropped us: keep trying with the same id + token (the invite link stays valid) */
+  async _reconnectBroker() {
+    if (this.closed || this._reconnecting) return;
+    this._reconnecting = true;
+    this.brokerLost = true;
+    this.onNotice?.("Lost the matchmaking server. Reconnecting… (players already in are fine)");
+    for (let attempt = 0; !this.closed; attempt++) {
+      await new Promise((r) => setTimeout(r, Math.min(30000, 1000 * 2 ** attempt)));
+      if (this.closed) break;
+      const sig = new Signaling(this.net.broker);
+      try {
+        await sig.connect(this.roomId, this.token);
+        this.signaling = sig;
+        // links still setting up keep using the new socket for their remaining candidates
+        for (const g of this.guests.values()) if (!g.link.isOpen) g.link.signaling = sig;
+        this._wireSignaling();
+        this.brokerLost = false;
+        this.onNotice?.("Matchmaking server back: the invite link works again");
+        break;
+      } catch (e) {
+        sig.close();
+        if (e.code === "id-taken") {
+          // the server still holds our old session under another token: it frees it after a timeout
+          console.warn("[net] room id still taken on the broker, retrying");
+        }
+      }
+    }
+    this._reconnecting = false;
   }
 
   /** the link to share */
@@ -141,7 +210,8 @@ export class HostRoom extends BaseRoom {
         remoteId: m.src,
         cid: signalCid(m.payload),
         signaling: this.signaling,
-        iceServers: this.net.iceServers,
+        iceServers: this.ice.iceServers,
+        policy: this.ice.policy,
         initiator: false,
         connectTimeout: this.net.connectTimeout,
         netsim: this.net.netsim,
@@ -161,11 +231,20 @@ export class HostRoom extends BaseRoom {
     link.onClose = () => {
       clearTimeout(helloTimer);
       this.guests.delete(sid);
-      if (g.player) {
-        this.players = this.players.filter((p) => p !== g.player);
-        if (!this.closed) this.onNotice?.(`${g.player.name} left`);
-        this._broadcastPlayers();
+      const p = g.player;
+      if (!p || g.replaced || this.closed) return;
+      if (!g.bye && p.state === "in-game") {
+        // dropped without saying goodbye: keep the place (and the score) for a while
+        p.state = "away";
+        p.awayUntil = performance.now() + AWAY_MS;
+        p.ping = undefined;
+        this.onNotice?.(`${p.name} lost connection. Waiting for them to come back…`);
+      } else {
+        this.players = this.players.filter((x) => x !== p);
+        this.keys.delete(p.id);
+        this.onNotice?.(`${p.name} left`);
       }
+      this._broadcastPlayers();
     };
     link.onMessage = (msg) => {
       if (msg.t === "hello") return this._hello(g, msg).catch((e) => {
@@ -174,7 +253,10 @@ export class HostRoom extends BaseRoom {
       });
       if (!g.player) return;
       if (msg.t === "ready") return this._ready(g, msg);
-      if (msg.t === "bye") return link.close("closed");
+      if (msg.t === "bye") {
+        g.bye = true;
+        return link.close("closed");
+      }
       this.onGameMessage?.(msg, g.player.id);
     };
     link.onFast = (msg) => {
@@ -213,33 +295,57 @@ export class HostRoom extends BaseRoom {
       link.send({ t: "reject", reason: "version", message: "You're on a different version of the game. Reload the page and try again." });
       return setTimeout(() => link.close("rejected"), 500);
     }
-    if (this.players.length >= this.net.maxPlayers) {
+    // coming back after a drop? (same per-tab key)
+    const key = typeof msg.k === "string" ? msg.k.slice(0, 40) : "";
+    const back = key ? this.players.find((p) => !p.host && this.keys.get(p.id) === key) : null;
+    if (back) {
+      // its old link may not have noticed the drop yet: retire it quietly
+      for (const og of this.guests.values()) {
+        if (og !== g && og.player === back) {
+          og.replaced = true;
+          og.link.close("replaced");
+        }
+      }
+    }
+    if (!back && this.players.length >= this.net.maxPlayers) {
       link.send({ t: "reject", reason: "full", message: `This game is full (${this.net.maxPlayers} players).` });
       return setTimeout(() => link.close("rejected"), 500);
     }
     // snapshot BEFORE this guest is registered: live events from now on reach it after the welcome
     const world = this.snapshotProvider?.() ?? null;
-    const used = new Set(this.players.map((p) => p.color));
-    const player = {
-      id: this.nextId++,
-      name: cleanName(msg.name) || `Player ${this.nextId - 1}`,
-      color: PLAYER_COLORS.find((c) => !used.has(c)) || PLAYER_COLORS[0],
-      host: false,
-      state: "loading",
-    };
+    let player;
+    if (back) {
+      player = back;
+      player.state = "loading";
+      delete player.awayUntil;
+      player.name = cleanName(msg.name) || player.name;
+    } else {
+      const used = new Set(this.players.map((p) => p.color));
+      player = {
+        id: this.nextId++,
+        name: cleanName(msg.name) || `Player ${this.nextId - 1}`,
+        color: PLAYER_COLORS.find((c) => !used.has(c)) || PLAYER_COLORS[0],
+        host: false,
+        state: "loading",
+      };
+      this.players.push(player);
+    }
+    if (key) this.keys.set(player.id, key);
     g.player = player;
-    this.players.push(player);
+    g.rejoined = !!back;
+    // a guest that was just here already has the map: skip the download
+    const has = msg.have && msg.have.hash === this.map.hash && msg.have.count === this.map.count;
     link.send({
       t: "welcome",
       you: player.id,
       players: this.players,
       map: this.map,
-      pdf: { size: this.pdfBytes.length, name: this.pdfName },
+      pdf: has ? null : { size: this.pdfBytes.length, name: this.pdfName },
       world,
     });
     this._broadcastPlayers();
-    this.onNotice?.(`${player.name} is joining…`);
-    await link.sendBytes(this.pdfBytes);
+    this.onNotice?.(back ? `${player.name} is reconnecting…` : `${player.name} is joining…`);
+    if (!has) await link.sendBytes(this.pdfBytes);
   }
 
   _ready(g, msg) {
@@ -255,8 +361,15 @@ export class HostRoom extends BaseRoom {
     }
     if (msg.hash !== this.map.hash) console.warn(`[net] ${p.name}'s map geometry differs slightly from the host's`, msg.hash, this.map.hash);
     p.state = "in-game";
-    this.onNotice?.(`${p.name} joined`);
+    this.onNotice?.(g.rejoined ? `${p.name} is back` : `${p.name} joined`);
     this._broadcastPlayers();
+    // direct or through the relay? (shown next to the ping)
+    routeOf(g.link.pc).then((route) => {
+      if (g.player !== p || this.closed) return;
+      p.route = route;
+      if (route === "relay") this.onNotice?.(`${p.name} is connected through the relay server`);
+      this._broadcastPlayers();
+    });
   }
 
   _broadcastPlayers() {
@@ -279,6 +392,8 @@ export class HostRoom extends BaseRoom {
     this.guests.clear();
     this.signaling?.close();
     clearInterval(this._pingTimer);
+    clearInterval(this._watchdog);
+    clearInterval(this._iceTimer);
     this._finish("left", "You closed the room.");
   }
 }
@@ -293,7 +408,10 @@ export class GuestRoom extends BaseRoom {
    * @param {string} o.name
    * @param {typeof import("../config.js").config.net} o.net
    * @param {(text:string, progress?:number) => void} [o.onStatus]
-   * @returns {Promise<{room:GuestRoom, pdfBytes:Uint8Array, pdfName:string, map:{hash:string,count:number}}>}
+   * @param {string} [o.key]        per-tab key: rejoining with it gets our place (and score) back
+   * @param {{hash:string,count:number}} [o.haveMap]  we already have this map: no PDF download
+   * @returns {Promise<{room:GuestRoom, pdfBytes:Uint8Array|null, pdfName:string, map:{hash:string,count:number}, world:any}>}
+   *   pdfBytes is null when the host skipped the download (haveMap matched)
    */
   static async join(roomId, o) {
     const room = new GuestRoom(o.net);
@@ -352,6 +470,7 @@ export class GuestRoom extends BaseRoom {
     this.signaling = new Signaling(this.net.broker);
     await this.signaling.connect(`pcv-g-${randomId(12)}`);
 
+    const ice = await resolveIce(this.net);
     status("Finding the host…");
     return await new Promise((resolve, reject) => {
       let welcome = null;
@@ -378,7 +497,8 @@ export class GuestRoom extends BaseRoom {
         remoteId: roomId,
         cid: `dc_${randomId(10)}`, // PeerJS-style connection id
         signaling: this.signaling,
-        iceServers: this.net.iceServers,
+        iceServers: ice.iceServers,
+        policy: ice.policy,
         initiator: true,
         connectTimeout: this.net.connectTimeout,
         netsim: this.net.netsim,
@@ -397,7 +517,18 @@ export class GuestRoom extends BaseRoom {
 
       link.onOpen = () => {
         status("Connected. Saying hello…");
-        link.send({ t: "hello", v: NET_VERSION, name: o.name });
+        link.send({ t: "hello", v: NET_VERSION, name: o.name, k: o.key, have: o.haveMap });
+      };
+      const done = (pdfBytes) => {
+        settled = true;
+        this.downloadedPdf = !!pdfBytes;
+        clearTimeout(timer);
+        // the broker was only needed to set the connection up
+        this.signaling.close();
+        this.signaling = null;
+        this._startPinging();
+        this._watchdog = watchdog(() => [link], (l) => l, () => SILENCE_MS);
+        resolve({ room: this, pdfBytes, pdfName: welcome.pdf?.name || "cv.pdf", map: welcome.map, world: welcome.world });
       };
       link.onClose = (reason) => {
         if (!settled) {
@@ -405,10 +536,17 @@ export class GuestRoom extends BaseRoom {
             reason === "no-answer"
               ? new NetError("no-answer", "The host's game didn't answer. Make sure the host's tab is still open (and on the same game version), then try the link again.")
               : reason === "ice-failed" || reason === "ice-timeout"
-                ? new NetError("p2p-blocked", "Found the host but couldn't connect directly: a firewall or router between you blocks peer-to-peer connections. Try another network (e.g. a phone hotspot) on one side.")
+                ? new NetError(
+                    "p2p-blocked",
+                    ice.relay
+                      ? "Found the host but couldn't connect, not even through the relay server. A firewall may block it, or the relay's free monthly allowance is used up. Try another network (e.g. a phone hotspot) on one side."
+                      : "Found the host but couldn't connect directly: the networks on the two sides don't allow it (common with mobile data, corporate Wi-Fi or strict routers), and this game has no relay server set up. See \"Relay (TURN)\" in the README.",
+                  )
                 : new NetError("closed", "The host closed the connection."),
           );
-        } else this._finish(this._closeReason || "host-left", this._closeMessage || "The host left the game.");
+        } else if (this._closeReason) this._finish(this._closeReason, this._closeMessage);
+        // no "bye", no kick: the connection died (Wi-Fi blip, sleep…). The game tries to rejoin.
+        else this._finish("lost", "Lost the connection to the host.");
       };
       link.onMessage = (msg) => {
         if (msg.t === "reject") return fail(new NetError(msg.reason, msg.message));
@@ -416,6 +554,7 @@ export class GuestRoom extends BaseRoom {
           welcome = msg;
           this.selfId = msg.you;
           this.players = msg.players;
+          if (!msg.pdf) return done(null); // we already have the map
           buf = new Uint8Array(msg.pdf.size);
           arm(20000, stalled);
           status(`Downloading ${msg.pdf.name || "the CV"}…`, 0);
@@ -430,15 +569,7 @@ export class GuestRoom extends BaseRoom {
         got += bytes.length;
         arm(20000, stalled);
         status(`Downloading ${welcome.pdf.name || "the CV"}…`, Math.min(1, got / buf.length));
-        if (got >= buf.length) {
-          settled = true;
-          clearTimeout(timer);
-          // the broker was only needed to set the connection up
-          this.signaling.close();
-          this.signaling = null;
-          this._startPinging();
-          resolve({ room: this, pdfBytes: buf, pdfName: welcome.pdf.name || "cv.pdf", map: welcome.map, world: welcome.world });
-        }
+        if (got >= buf.length) done(buf);
       };
 
       link.call().catch((e) => fail(new NetError("p2p-error", `WebRTC error: ${e?.message || e}`)));
@@ -491,9 +622,30 @@ export class GuestRoom extends BaseRoom {
 
   _teardown() {
     clearInterval(this._pingTimer);
+    clearInterval(this._watchdog);
     this.signaling?.close();
     this.link?.close("closed");
   }
+}
+
+/**
+ * Close links that have been silent too long. If this timer itself ran late (our own tab was busy
+ * building a map, or throttled in the background), the silence is ours, not theirs: start over.
+ * @returns {number} interval id
+ */
+function watchdog(items, linkOf, limitOf) {
+  let last = performance.now();
+  return setInterval(() => {
+    const now = performance.now();
+    const late = now - last > 3000;
+    last = now;
+    for (const it of items()) {
+      const link = linkOf(it);
+      if (!link.isOpen) continue;
+      if (late) link.lastRecv = Math.max(link.lastRecv, now);
+      else if (now - link.lastRecv > limitOf(it)) link.close("lost");
+    }
+  }, 1000);
 }
 
 function cleanName(s) {

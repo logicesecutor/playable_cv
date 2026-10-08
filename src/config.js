@@ -63,6 +63,7 @@ export const config = {
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
   net: {
     maxPlayers: 8,
+    killTarget: 10, // first to this many kills wins the match
     connectTimeout: 15000, // ms to get a direct connection once the host is found
     // matchmaking ("signaling") server: only used to introduce the two browsers to each other.
     // Default: the free public PeerJS server. Override per page load with
@@ -71,5 +72,9 @@ export const config = {
     // STUN lets browsers behind home routers find each other. Strict networks would also need
     // a TURN relay here: { urls: "turn:…", username: "…", credential: "…" }
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }],
+    // Relay (TURN) for networks where a direct connection is impossible. Free Metered account:
+    // app = the <app> in https://<app>.metered.live, apiKey = a credential's front-end API key
+    // (public by design; NEVER the account's Secret Key). Empty = direct connections only.
+    turn: { metered: { app: "", apiKey: "" } },
   },
 };

@@ -14,7 +14,8 @@
     "signal": "node tools/signal-server.mjs",
     "test:interp": "node tools/test-interp.mjs",
     "sim:net": "node tools/sim-net.mjs",
-    "sim:pvp": "node tools/sim-pvp.mjs"
+    "sim:pvp": "node tools/sim-pvp.mjs",
+    "sim:match": "node tools/sim-match.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.2.108",

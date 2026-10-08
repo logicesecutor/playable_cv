@@ -187,7 +187,8 @@ export function encodeState(id, k, t, core, flags, shots) {
 /** shots carried by a state message, validated */
 export function decodeShots(m) {
   if (!Array.isArray(m?.x)) return [];
-  return m.x.filter((s) => Array.isArray(s) && s.length === 7 && s.every(Number.isFinite)).slice(0, 12);
+  // [ox,oy,oz, ex,ey,ez, kind, seq]: seq (MP5) lets the receiver drop the copy sent twice
+  return m.x.filter((s) => Array.isArray(s) && (s.length === 7 || s.length === 8) && s.every(Number.isFinite)).slice(0, 24);
 }
 
 /** message -> Snapshot, or null if malformed */

@@ -15,6 +15,7 @@ import { Hud } from "./ui/hud.js";
 import { HostRoom, GuestRoom } from "./net/room.js";
 import { brokerFromUrl } from "./net/signaling.js";
 import { netsimFromUrl } from "./net/netsim.js";
+import { applyIceUrlOptions } from "./net/ice.js";
 import { NetSync } from "./net/sync.js";
 import { LetterNet } from "./net/letters.js";
 import { createPvp } from "./game/pvp.js";
@@ -23,7 +24,7 @@ import { RemoteShots } from "./fx/remoteShots.js";
 import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
-import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl } from "./ui/lobby.js";
+import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl, rejoinKey } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
 const screens = { upload: $("upload-screen"), join: $("join-screen"), loading: $("loading-screen"), game: $("game-screen") };
@@ -33,6 +34,12 @@ function show(name) {
 
 config.net.broker = brokerFromUrl(config.net.broker);
 config.net.netsim = netsimFromUrl(); // developer tool: ?netsim=lag:80,jitter:30,loss:0.05
+applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<key> swaps the relay account
+{
+  // developer tool: ?target=3 for short test matches (only the host's value counts)
+  const t = Number(new URLSearchParams(location.search).get("target"));
+  if (Number.isInteger(t) && t >= 1 && t <= 100) config.net.killTarget = t;
+}
 
 let game = null; // the running map, if any
 const sfx = new Sfx(); // one audio context for the whole page
@@ -96,6 +103,7 @@ joinScreen.onJoin = async (name) => {
     const res = await GuestRoom.join(roomId, {
       name,
       net: config.net,
+      key: rejoinKey(roomId),
       onStatus: (text, progress) => joinScreen.setStatus(text, progress),
     });
     const { room } = res;
@@ -114,7 +122,7 @@ joinScreen.onJoin = async (name) => {
     if (room.closed) return;
     $("loading-text").textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
     await nextFrame();
-    startGame(pdf, { room, hostMap: res.map, fileName: res.pdfName, world: res.world });
+    startGame(pdf, { room, hostMap: res.map, fileName: res.pdfName, world: res.world, roomId, name });
   } catch (err) {
     console.error(err);
     show("join");
@@ -155,8 +163,10 @@ const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeou
 
 /**
  * @param {any} pdf extracted PDF (+ `bytes`, the original file)
- * @param {{room?: GuestRoom, hostMap?: {hash:string,count:number}, fileName?: string}} [online]
- *   `room` is set when we joined someone else's game; otherwise we're the (potential) host
+ * @param {{room?: GuestRoom, hostMap?: {hash:string,count:number}, fileName?: string, world?: any,
+ *   roomId?: string, name?: string, resume?: {x:number,z:number,yaw:number}}} [online]
+ *   `room` is set when we joined someone else's game; otherwise we're the (potential) host.
+ *   `resume`: we reconnected: skip the intro and carry on where we were.
  */
 function startGame(pdf, online = {}) {
   game?.dispose();
@@ -219,6 +229,7 @@ function startGame(pdf, online = {}) {
     world.spawn = findSpawn(world.entities, W, D, config.player.radius, { x: W / 2 + Math.cos(a) * 10, z: D * 0.55 + Math.sin(a) * 10 });
   }
   intro = new Intro(camera, world, config);
+  if (online.resume) intro.skip();
   window.addEventListener("resize", resize);
 
   // fog only once we're on the ground; from the top it would grey out the page
@@ -287,6 +298,8 @@ function startGame(pdf, online = {}) {
   };
 
   // ---- multiplayer
+  /** end-of-match camera flight to the top view (MP5); declared before a late joiner may need it */
+  let endCam = null;
   /** @type {HostRoom|GuestRoom|null} */
   let room = online.room || null;
   const invite = new InvitePanel();
@@ -330,12 +343,29 @@ function startGame(pdf, online = {}) {
 
     pvp = createPvp({
       room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
+      target: config.net.killTarget,
       onStats: () => playersPanel.render(r.players, r.selfId, letters?.kills),
+      resetWorld: () => {
+        destruction.resetAll();
+        hud.integrity(destruction);
+      },
+      endView: (on) => {
+        // end of match: rise to the top view and look at the wrecked CV (no fog up there)
+        if (on && !endCam) {
+          endCam = { t: 0, pos: camera.position.clone(), quat: camera.quaternion.clone(), to: intro.topPose() };
+          scene.fog = null;
+        } else if (!on && endCam) {
+          endCam = null;
+          camera.near = 0.1;
+          camera.updateProjectionMatrix();
+          if (intro.done) scene.fog = fog;
+        }
+      },
     });
-    const onGame = (msg, from) => letters?.onMessage(msg, from) || pvp?.combat.onMessage(msg, from);
+    const onGame = (msg, from) => letters?.onMessage(msg, from) || pvp?.onMessage(msg, from);
     if (r.isHost) {
       // a joining guest catches up with this (taken before it is registered)
-      r.snapshotProvider = () => ({ letters: letters.snapshot(), combat: pvp.combat.snapshot() });
+      r.snapshotProvider = () => ({ letters: letters.snapshot(), ...pvp.snapshot() });
       r.onGameMessage = onGame;
     }
 
@@ -348,6 +378,8 @@ function startGame(pdf, online = {}) {
     r.onNotice = (text) => feed.push(text);
     r.onClosed = (reason, message) => {
       if (r.isHost || reason === "left") return; // we closed it ourselves
+      // the connection died without a goodbye: try to get back in, score and all
+      if (reason === "lost" && online.roomId) return rejoin();
       // the host is gone: this map is dead, back to the start page
       leaveToMenu(message);
     };
@@ -355,7 +387,7 @@ function startGame(pdf, online = {}) {
     if (!r.isHost) {
       // catch up with what happened before we joined, then replay what came in while loading
       letters.applySnapshot(online.world?.letters);
-      pvp.applySnapshot(online.world?.combat);
+      pvp.applySnapshot(online.world);
       hud.integrity(destruction);
       r.setGameHandler((msg) => onGame(msg, 0));
     }
@@ -385,6 +417,41 @@ function startGame(pdf, online = {}) {
     };
   }
 
+  /** a guest lost its connection: rejoin through the same link for up to 60 s (MP5) */
+  const rejoin = async () => {
+    if (disposed) return;
+    const banner = $("reconnect");
+    banner.hidden = false;
+    weapon.blocked = true;
+    weapon.mouseTrigger = weapon.keyTrigger = false;
+    const resume = { x: player.core.x, z: player.core.z, yaw: player.core.yaw };
+    const until = performance.now() + 60000;
+    for (let attempt = 1; !disposed && performance.now() < until; attempt++) {
+      banner.textContent = `Connection lost. Reconnecting… (attempt ${attempt})`;
+      try {
+        const res = await GuestRoom.join(online.roomId, {
+          name: online.name || "Player",
+          net: config.net,
+          key: rejoinKey(online.roomId),
+          haveMap: map,
+          onStatus: (text) => (banner.textContent = `Connection lost. ${text}`),
+        });
+        if (disposed) return res.room.leave();
+        // the host skips the download when we still have the map; otherwise rebuild from its PDF
+        const p2 = res.pdfBytes ? await loadPdfBytes(res.pdfBytes, { rasterScale: config.rasterScale }) : pdf;
+        startGame(p2, { room: res.room, hostMap: res.map, fileName: online.fileName, world: res.world, roomId: online.roomId, name: online.name, resume });
+        return;
+      } catch (e) {
+        console.warn("[net] rejoin attempt failed", e);
+        // the room is gone from the matchmaking server: the host closed the game (or crashed)
+        if (e?.code === "no-host") return leaveToMenu("The host left the game.");
+        if (["version", "full", "bad-link"].includes(e?.code)) return leaveToMenu(e.message);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    if (!disposed) leaveToMenu("Lost the connection to the host and couldn't get back in.");
+  };
+
   const leaveToMenu = (message) => {
     game?.dispose();
     game = null;
@@ -412,7 +479,8 @@ function startGame(pdf, online = {}) {
     if (!playing) {
       if (!intro.update(dt)) {
         scene.fog = fog;
-        player.spawn(world.spawn.x, world.spawn.z, 0);
+        const at = online.resume || { x: world.spawn.x, z: world.spawn.z, yaw: 0 };
+        player.spawn(at.x, at.z, at.yaw);
         setPlaying(true);
       }
     } else {
@@ -435,6 +503,15 @@ function startGame(pdf, online = {}) {
     if (playing) minimap.draw(player.core.x, player.core.z, player.core.yaw, sync ? sync.minimapDots() : undefined);
     hud.update(dt);
 
+    if (endCam) {
+      endCam.t += dt;
+      const k = Math.min(1, endCam.t / 2.5);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      camera.position.lerpVectors(endCam.pos, endCam.to.pos, e);
+      camera.quaternion.slerpQuaternions(endCam.quat, endCam.to.quat, e);
+      camera.near = THREE.MathUtils.clamp(camera.position.y * 0.04, 0.1, 20); // depth precision up high
+      camera.updateProjectionMatrix();
+    }
     renderer.render(scene, camera);
     if (playing && !player.dead) weapon.render(renderer); // no gun in hand on the killcam
   });
@@ -446,6 +523,7 @@ function startGame(pdf, online = {}) {
       room?.leave();
       room = null;
       clearInterval(netTimer);
+      $("reconnect").hidden = true;
       pvp?.dispose();
       pvp = null;
       sync?.dispose();

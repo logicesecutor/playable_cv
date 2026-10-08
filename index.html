@@ -76,6 +76,8 @@
           <span id="hp-prot" hidden>spawn protection</span>
           <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar"><span id="hp-fill"></span></div><span id="hp-value">100</span></div>
         </div>
+        <div id="match-bar" hidden></div>
+        <div id="reconnect" hidden role="status"></div>
         <div id="scoreboard" hidden>
           <table>
             <thead><tr><th></th><th>Player</th><th>Kills</th><th>Deaths</th><th>Letters</th><th>Ping</th></tr></thead>
@@ -130,6 +132,20 @@
               <dt>I</dt><dd>replay intro</dd>
               <dt>Esc</dt><dd>pause</dd>
             </dl>
+          </div>
+        </div>
+        <div id="endcard" hidden>
+          <div class="ec-panel">
+            <p class="ec-kicker">Match over</p>
+            <h2 id="ec-title"></h2>
+            <p id="ec-sub"></p>
+            <table class="ec-table">
+              <thead><tr><th></th><th></th><th>Player</th><th>Kills</th><th>Deaths</th><th>Letters</th></tr></thead>
+              <tbody id="ec-body"></tbody>
+            </table>
+            <div id="ec-awards"></div>
+            <button id="ec-rematch" class="btn primary" type="button">Rematch on a fresh CV</button>
+            <p id="ec-wait"></p>
           </div>
         </div>
       </div>

@@ -45,8 +45,10 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
+- `npm run build` writes the static site to `dist/` (`BASE_PATH=/<repo>/` when it is served from a
+  sub-path, as on GitHub Pages; the deploy workflow sets it).
 
 ## Multiplayer
 
@@ -64,8 +66,9 @@ network connections at all: the room opens only when you click **Invite friends*
 **Join**: open the link → type a name → **Join game**. The host's browser sends you the original PDF
 and your browser rebuilds the same map from it. The name is remembered in `localStorage`.
 
-**What works now (MP4)**: lobby + shared map (MP1), you see each other (MP2), letters break for
-everyone (MP3), and you can shoot each other (MP4). Every player is a low-poly soldier in their colour
+**What works now (MP5)**: lobby + shared map (MP1), you see each other (MP2), letters break for
+everyone (MP3), you can shoot each other (MP4), and it's a real match that survives Wi-Fi blips (MP5,
+below). Every player is a low-poly soldier in their colour
 holding the same gun (walk/run, crouch, jump, aim pitch), moving smoothly even on a laggy connection.
 Name tags and minimap dots (with a facing tick) appear only while that player is in your line of sight, not through letters. Positional
 footsteps, ping per guest in the player list (amber > 140 ms, red > 250 ms), "connection lost…" on a
@@ -85,6 +88,86 @@ letters, ping). You see and hear others' tracers, muzzle flashes and gunshots (d
 with floor scorch marks; whoever shoots shows on everyone's minimap for 1.5 s, even through letters.
 A host in a background tab keeps the game running for the guests.
 
+**Match**: first to 10 kills wins (`config.net.killTarget`; the host referees). A bar at the top
+centre shows "First to 10 · leader N · you M". At the end everyone gets the same card: winner, final
+table (kills, deaths, letters) and three awards: **Demolition** (most letters destroyed), **On a roll**
+(best kill streak), **Sharpshooter** (most headshot kills). Shooting stops, the mouse is released and
+the camera rises to the top view of the wrecked CV. The host gets **Rematch on a fresh CV**, guests
+see "Waiting for <host> to start a rematch…". A rematch is instant (no map rebuild): every letter and
+the clean paper come back, scores go to zero and everyone respawns spread over the page with 2 s of
+protection. Hits still in flight from the old match don't count. Players who join mid-match or during
+the end card get the current match state (and the end card).
+
+**Drop-outs**: a guest whose connection dies without saying goodbye stays in the list as
+"reconnecting…" (with its score, no avatar) for 60 s. Its tab shows "Connection lost. Reconnecting…
+(attempt n)" and retries every 2 s; back within 60 s it gets the same player, colour and score, skips
+the PDF download and carries on where it was. After 60 s it is removed. If the host has gone, the
+guest sees "The host left the game.". Both sides treat 10 s without any traffic as a dead connection.
+If the host loses the matchmaking server, it reconnects on its own (1 s → 30 s backoff) under the
+same room id, so the invite link keeps working; players already in are not affected.
+
+## Play with friends (online)
+
+The game is a static site: the GitHub Action in `.github/workflows/deploy-pages.yml` builds it and
+publishes it on GitHub Pages at **https://logicesecutor.github.io/playable_cv/**. Invite links made
+there work for anyone on the internet.
+
+**One-time setup**
+
+1. Make the repo public (GitHub Pages needs that on the free plan).
+2. Repo **Settings → Pages → Source: "GitHub Actions"**.
+3. Push `main`. The "Deploy to GitHub Pages" workflow runs on every push to `main` (or by hand from the
+   Actions tab). Wait for it to go green.
+4. Open https://logicesecutor.github.io/playable_cv/.
+
+**Play**
+
+1. Host: open the site, drop your CV, Esc → type your name → **Invite friends** → **Copy** the link.
+2. Send it (chat, mail…). Keep your tab open: closing it ends the game for everyone.
+3. Friends: open the link → name → **Join game**. They download your CV from your browser and build
+   the same map. Up to 8 players.
+
+**A friend can't connect** ("Found the host but couldn't connect…"): some networks (mobile data,
+corporate or university Wi-Fi, strict routers) don't allow a direct peer-to-peer connection. Set up
+the free relay below once and push again; the host's player list then shows "· relay" next to the ping
+of anyone who goes through it.
+
+### Relay (TURN)
+
+Without a relay only direct connections work (STUN). The game can fetch relay credentials from
+[Metered](https://www.metered.ca) (free plan: 500 MB/month, no card):
+
+1. Create a free Metered account and a TURN app. The app name is the `<app>` in
+   `https://<app>.metered.live` (shown on the dashboard).
+2. In the dashboard, open the TURN credentials and copy a credential's **API key** (the one used in
+   `https://<app>.metered.live/api/v1/turn/credentials?apiKey=…`).
+3. Put both in `src/config.js`:
+   ```js
+   turn: { metered: { app: "<app>", apiKey: "<credential API key>" } },
+   ```
+   This key is meant to be public (it can only fetch short-lived relay credentials). **Never put the
+   account's Secret Key there.**
+4. Commit, push, wait for the Action.
+5. Check: open the site with `?relay=1` on both sides (forces every connection through the relay, so
+   it can be tested on one machine): if the guest joins, the relay works.
+
+Credentials are cached 10 min; the host refreshes them every 9 min for guests who join later. If the
+fetch fails, the game falls back to direct connections only. `?turn=<app>:<key>` uses another
+Metered app for one page load. Only players whose connection needs the relay use it; in a full
+8-player game each of them costs roughly 100 MB per hour (plus the CV download once), so 500 MB is a
+few evenings of play.
+
+### Test it from two networks yourself
+
+- [ ] Host on the PC (home Wi-Fi): open the deployed site, drop a CV, **Invite friends**, send the link
+      to your phone.
+- [ ] Phone: **Wi-Fi off**, mobile data on (a different network), open the invite link.
+- [ ] Expect: the phone joins, downloads the CV, shows the same map, and both player lists show both
+      players (with "· relay" on the host if the relay was needed).
+- [ ] The phone has no touch controls (it can't move or shoot): this checks connection and map, not
+      gameplay.
+- [ ] If it fails with "couldn't connect", set up the relay above and retry (or try `?relay=1` on both).
+
 ### Testing on a bad connection
 
 Add `?netsim=lag:80,jitter:40,loss:0.05` to the page URL to make a same-computer test behave like the
@@ -93,26 +176,35 @@ internet. It applies to what *that tab sends*, so set it on both tabs (round tri
 of order), reliable ones are only delayed, in order. The invite link carries the query string: remove
 it before sharing a real link.
 
+Other developer URL options: `?target=3` for short test matches (first to 3; only the host's value
+counts), `?relay=1` forces every connection through the TURN relay, `?turn=<app>:<key>` uses another
+Metered relay app for this page load.
+
 ### Where the link works
 
 | Setup | How |
 |---|---|
 | Same computer (testing) | `npm run dev`, invite, open the link in a second tab/window. `localhost` links only work here. |
 | Same LAN | `npm run dev -- --host`, open the game via the LAN address Vite prints (`http://192.168.x.x:5173`), then invite. |
-| Over the internet | Deployed build on GitHub Pages: coming in MP5. |
+| Over the internet | The deployed site on GitHub Pages (see "Play with friends (online)"), plus the relay for strict networks. |
 | LAN without internet | `npm run signal` (listens on :9000, `PORT=` to change) and open the game with `?broker=ws://<that machine's IP>:9000`. |
 
 `?broker=` overrides the signaling server for that page load (`ws://…` or `wss://host/path`); the
 invite link keeps it, so guests use the same one. Default: `0.peerjs.com` (free public PeerJS server),
-with Google + Cloudflare STUN. All of it lives in `src/config.js` → `net`.
+with Google + Cloudflare STUN, plus the Metered relay when `net.turn.metered` is filled in. All of it
+lives in `src/config.js` → `net`.
 
 ### Troubleshooting
 
 | Message | Meaning |
 |---|---|
 | "No game at that link…" | The host closed the game or the link is old. Ask for a new one. |
-| "Found the host but couldn't connect directly…" | A network on either side blocks peer-to-peer (corporate, some mobile). Needs a TURN relay in `config.net.iceServers` (none configured yet). |
+| "Found the host but couldn't connect directly…" | A network on either side blocks peer-to-peer (mobile data, corporate Wi-Fi, strict routers) and no relay is configured: see "Relay (TURN)". |
+| "…couldn't connect, not even through the relay server." | A firewall blocks the relay too, or the free monthly 500 MB are used up. Try another network on one side. |
 | "The matchmaking server (…) didn't answer." | Broker down or unreachable: try later, or run `npm run signal` + `?broker=`. |
+| "Connection lost. Reconnecting… (attempt n)" | The guest's connection died (Wi-Fi blip, laptop sleep). It retries for 60 s and comes back with the same score. |
+| "The host left the game." | The room no longer exists (host closed the tab or crashed). |
+| "Lost the matchmaking server. Reconnecting…" (host feed) | Players already in are fine; new joins work again once "Matchmaking server back" shows. |
 | "The download from the host stalled…" | No CV data for 20 s. The host's connection dropped: try the link again. (A slow download that keeps going never times out.) |
 | "Your browser built a different map…" | The guest's browser extracted a different number of pieces. Use the same browser as the host. |
 
@@ -154,13 +246,21 @@ the host's kills, deaths and HP, kills = deaths, no damage while dead or protect
 by a respawn, every fake refused by the rewind check and no honest hit refused. Same `LAG=`, `JITTER=`,
 `SEED=`. Now: 80 ± 40 ms and 200 ± 150 ms both pass, ≈ 90–97 kills, 0 honest hits refused.
 
+`npm run sim:match` tests the match flow (`src/net/match.js`): a host and 3 guests play 3 matches to
+10 over a laggy fake link, the host starts each rematch at once (so old hits are still in flight), one
+player joins during an end screen and another mid-match. Winner, scores and awards must be identical
+everywhere, kills = deaths, nothing scores on the end screen, old-round hits don't count, every letter
+is back after a rematch. Same `LAG=`, `JITTER=`, `SEED=`. Now: 21/21 checks pass at 80 ± 40 and
+200 ± 150 ms.
+
 ## Layout
 
 ```
 src/
   main.js               upload / join screen -> loading -> game loop, host + guest wiring;
-                        100 ms timer keeps the network running when a hidden tab gets no frames
-  config.js             all tunables (scale, heights, speeds, intro timings, net)
+                        100 ms timer keeps the network running when a hidden tab gets no frames;
+                        guest auto-rejoin after a drop, end-of-match camera flight to the top view
+  config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn)
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
   pdf/outlines.js       path commands -> polygons with holes (pure, no three.js)
   pdf/loadPdf.js        browser wiring for pdf.js + worker (from a File or raw bytes; keeps `pdf.bytes`)
@@ -174,8 +274,9 @@ src/
                         hooks for player hits (playerRay / onPlayerHit / onFired / blocked)
   player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim; die / revive
   world/destruction.js  letter HP, hit effects + wobble, shattering, burning the ink off the paper;
-                        remote hits, silent kills (late join), revive (refused prediction)
-  fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters
+                        remote hits, silent kills (late join), revive (refused prediction);
+                        resetAll (rematch) from a clean raster copy (`pdf.rasterClean`)
+  fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters; clear()
   fx/particles.js       sparks and dust (soft points, one draw call each)
   fx/remoteShots.js     other players' shots: tracer, muzzle flash, positional gunshot, floor scorch, player puff
   audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
@@ -184,20 +285,30 @@ src/
   ui/combatHud.js       health bar, damage flash + direction, killcam text, spawn protection, kill feed, Tab scoreboard
   ui/minimap.js         page raster + player arrow + dots for other players in sight
   ui/nameTags.js        HTML name tags projected from 3D over other players
-  ui/lobby.js           join screen, invite box (pause card), player list with ping, notice feed, saved nickname
-  net/signaling.js      PeerJS-protocol signaling client over WebSocket, ?broker= override
-  net/peerLink.js       one RTCPeerConnection: "rel" (reliable) + "fast" (unreliable) channels, chunked binary
+  ui/matchHud.js        match bar (first to N, leader, you) and end card (winner, table, awards, Rematch)
+  ui/lobby.js           join screen, invite box (pause card), player list with ping (+ "relay", "reconnecting…"),
+                        notice feed, saved nickname, per-tab rejoin key (sessionStorage)
+  net/signaling.js      PeerJS-protocol signaling client over WebSocket, ?broker= override, reusable token
+  net/peerLink.js       one RTCPeerConnection: "rel" (reliable) + "fast" (unreliable) channels, chunked binary,
+                        lastRecv (watchdogs), forced relay policy
+  net/ice.js            STUN + Metered TURN credentials (cached), ?relay= / ?turn=, routeOf (direct or relay)
   net/netsim.js         ?netsim= developer network simulator (lag, jitter, loss on what this tab sends)
-  net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, ping/pong, leave/kick
+  net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, ping/pong, leave/kick;
+                        away players + rejoin by key, 10 s silence watchdogs, broker reconnect
   net/clock.js          ClockSync: guests estimate the host's clock (shared game time) from ping/pong
   net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format
-                        incl. shots fired (`x`) (pure JS)
+                        incl. shots fired (`x`, with sequence number) (pure JS)
   net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push;
-                        shots in states, raycast against players as we see them, minimap reveal of shooters
-  net/letters.js        LetterNet: shared destruction, predicted hits, host validation, late-join snapshot (pure JS)
-  net/combat.js         Combat: PvP referee: HP, damage + falloff, rewind check, deaths, respawns, regen, K/D (pure JS)
+                        shots in two states each (duplicates dropped), raycast against players as we see
+                        them, minimap reveal of shooters
+  net/letters.js        LetterNet: shared destruction, predicted hits, host validation, late-join snapshot,
+                        round-tagged hits, reset per match (pure JS)
+  net/combat.js         Combat: PvP referee: HP, damage + falloff, rewind check, deaths, respawns, regen, K/D,
+                        streaks + headshot kills, round tags, reset per match (pure JS)
+  net/match.js          Match: first to N, end (scores + awards), rematch, round number, late-join state (pure JS)
   net/hitbox.js         player hitboxes (body capsule + head sphere, standing / crouched), ray vs players (pure JS)
-  game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard
+  game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard;
+                        match: end view, rematch spawns spread over the page
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 tools/extract-debug.mjs
 tools/sim-player.mjs
@@ -205,6 +316,9 @@ tools/test-raycast.mjs
 tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
 tools/sim-net.mjs       shared destruction: 5 players on a laggy fake link must end with the host's map (`npm run sim:net`)
 tools/sim-pvp.mjs       PvP: host + 5 guests fight 90 s on a laggy fake link, scores agree, fakes refused (`npm run sim:pvp`)
+tools/sim-match.mjs     match flow: 3 matches to 10, instant rematches, late joiners, results agree (`npm run sim:match`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
+vite.config.js          `base` from BASE_PATH (sub-path on GitHub Pages)
+.github/workflows/deploy-pages.yml  build on push to main (or by hand) and publish dist/ to GitHub Pages
 ```
