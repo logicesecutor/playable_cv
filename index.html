@@ -66,6 +66,22 @@
       <canvas id="view"></canvas>
       <div id="hud">
         <div id="nametags"></div>
+        <div id="damage"></div>
+        <div id="dmg-dir"><span></span></div>
+        <div id="killcam" hidden>
+          <p class="kc-title">Killed by <b id="kc-killer"></b><span id="kc-head"></span></p>
+          <p class="kc-sub">Respawning in <span id="kc-count">3</span></p>
+        </div>
+        <div id="health" hidden>
+          <span id="hp-prot" hidden>spawn protection</span>
+          <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar"><span id="hp-fill"></span></div><span id="hp-value">100</span></div>
+        </div>
+        <div id="scoreboard" hidden>
+          <table>
+            <thead><tr><th></th><th>Player</th><th>Kills</th><th>Deaths</th><th>Letters</th><th>Ping</th></tr></thead>
+            <tbody id="sb-body"></tbody>
+          </table>
+        </div>
         <div id="crosshair" hidden></div>
         <div id="right-col">
           <canvas id="minimap" width="200" height="283" hidden></canvas>
@@ -109,6 +125,7 @@
               <dt>Space</dt><dd>jump: climb onto body text</dd>
               <dt>C</dt><dd>crouch: take cover</dd>
               <dt>V</dt><dd>noclip fly (Q/E down/up)</dd>
+              <dt>Tab</dt><dd>scoreboard (multiplayer)</dd>
               <dt>M</dt><dd>mute</dd>
               <dt>I</dt><dd>replay intro</dd>
               <dt>Esc</dt><dd>pause</dd>

@@ -46,13 +46,14 @@ export class Hud {
     }
   }
 
-  /** @param {"hit"|"kill"|"floor"|"miss"} result */
+  /** @param {"hit"|"kill"|"floor"|"miss"|"player"|"head"} result */
   hitMarker(result) {
-    if (result !== "hit" && result !== "kill") return;
+    if (result === "player") result = "hit";
+    if (result !== "hit" && result !== "kill" && result !== "head") return;
     const c = this.el.crosshair;
-    c.classList.remove("hit", "kill");
+    c.classList.remove("hit", "kill", "head");
     c.classList.add(result);
-    this.markerT = result === "kill" ? 0.25 : 0.08;
+    this.markerT = result === "kill" ? 0.35 : result === "head" ? 0.15 : 0.08;
   }
 
   toast(msg, seconds = 1.5) {
@@ -71,7 +72,7 @@ export class Hud {
   update(dt) {
     if (this.markerT > 0) {
       this.markerT -= dt;
-      if (this.markerT <= 0) this.el.crosshair.classList.remove("hit", "kill");
+      if (this.markerT <= 0) this.el.crosshair.classList.remove("hit", "kill", "head");
     }
     if (this.toastT > 0) {
       this.toastT -= dt;

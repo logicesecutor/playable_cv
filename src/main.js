@@ -17,6 +17,9 @@ import { brokerFromUrl } from "./net/signaling.js";
 import { netsimFromUrl } from "./net/netsim.js";
 import { NetSync } from "./net/sync.js";
 import { LetterNet } from "./net/letters.js";
+import { createPvp } from "./game/pvp.js";
+import { CombatHud } from "./ui/combatHud.js";
+import { RemoteShots } from "./fx/remoteShots.js";
 import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
@@ -294,6 +297,10 @@ function startGame(pdf, online = {}) {
   let sync = null;
   /** @type {LetterNet|null} shared destruction: who hit / destroyed which letter */
   let letters = null;
+  /** @type {ReturnType<typeof createPvp>|null} player vs player */
+  let pvp = null;
+  const chud = new CombatHud();
+  const remoteShots = new RemoteShots(scene, sfx, destruction);
 
   const wireRoom = (r) => {
     sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
@@ -320,20 +327,23 @@ function startGame(pdf, online = {}) {
     });
     destruction.onLocalHit = (e, h, dir) => letters?.localHit(e, h, dir);
     letters.onStats = (kills) => playersPanel.render(r.players, r.selfId, kills);
+
+    pvp = createPvp({
+      room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
+      onStats: () => playersPanel.render(r.players, r.selfId, letters?.kills),
+    });
+    const onGame = (msg, from) => letters?.onMessage(msg, from) || pvp?.combat.onMessage(msg, from);
     if (r.isHost) {
-      r.snapshotProvider = () => letters.snapshot();
-      r.onGameMessage = (msg, from) => letters?.onMessage(msg, from);
-    } else {
-      // catch up with the letters destroyed before we joined, then replay what came in while loading
-      letters.applySnapshot(online.world);
-      hud.integrity(destruction);
-      r.setGameHandler((msg) => letters?.onMessage(msg, 0));
+      // a joining guest catches up with this (taken before it is registered)
+      r.snapshotProvider = () => ({ letters: letters.snapshot(), combat: pvp.combat.snapshot() });
+      r.onGameMessage = onGame;
     }
 
     r.onPlayers = (list) => {
       playersPanel.render(list, r.selfId, letters?.kills);
       playersPanel.show(list.length > 1 || !r.isHost);
       sync?.setPlayers(list);
+      pvp?.setPlayers(list);
     };
     r.onNotice = (text) => feed.push(text);
     r.onClosed = (reason, message) => {
@@ -342,6 +352,13 @@ function startGame(pdf, online = {}) {
       leaveToMenu(message);
     };
     r.onPlayers(r.players);
+    if (!r.isHost) {
+      // catch up with what happened before we joined, then replay what came in while loading
+      letters.applySnapshot(online.world?.letters);
+      pvp.applySnapshot(online.world?.combat);
+      hud.integrity(destruction);
+      r.setGameHandler((msg) => onGame(msg, 0));
+    }
   };
 
   if (room) {
@@ -379,6 +396,15 @@ function startGame(pdf, online = {}) {
 
   const clock = new THREE.Clock();
   let running = true;
+  // browsers stop animation frames in hidden tabs: keep the network going on a timer, so a host
+  // that switches tabs still relays states and referees hits for the others
+  let lastFrameAt = performance.now();
+  const netTimer = setInterval(() => {
+    if (!running || performance.now() - lastFrameAt < 250) return;
+    sync?.update(0.1, intro.done);
+    letters?.update(100);
+    if (intro.done) pvp?.update(0.1);
+  }, 100);
   renderer.setAnimationLoop(() => {
     if (!running) return;
     const dt = Math.min(clock.getDelta(), 0.05);
@@ -401,12 +427,16 @@ function startGame(pdf, online = {}) {
     dust.update(dt);
     sync?.update(dt, playing);
     letters?.update(dt * 1000);
+    if (playing) pvp?.update(dt);
+    remoteShots.update(dt);
+    chud.update(dt);
+    lastFrameAt = performance.now();
     sfx.updateListener(camera);
     if (playing) minimap.draw(player.core.x, player.core.z, player.core.yaw, sync ? sync.minimapDots() : undefined);
     hud.update(dt);
 
     renderer.render(scene, camera);
-    if (playing) weapon.render(renderer);
+    if (playing && !player.dead) weapon.render(renderer); // no gun in hand on the killcam
   });
 
   game = {
@@ -415,6 +445,9 @@ function startGame(pdf, online = {}) {
       disposed = true;
       room?.leave();
       room = null;
+      clearInterval(netTimer);
+      pvp?.dispose();
+      pvp = null;
       sync?.dispose();
       sync = null;
       letters = null;
@@ -436,7 +469,7 @@ function startGame(pdf, online = {}) {
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots,
     get room() {
       return room;
     },
@@ -445,6 +478,9 @@ function startGame(pdf, online = {}) {
     },
     get letters() {
       return letters;
+    },
+    get pvp() {
+      return pvp;
     },
   };
 }

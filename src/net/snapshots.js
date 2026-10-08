@@ -165,9 +165,12 @@ export function lerpAngle(a, b, u) {
 const r2 = (v) => Math.round(v * 100) / 100;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
-/** local player -> message */
-export function encodeState(id, k, t, core, flags) {
-  return {
+/**
+ * local player -> message
+ * @param {number[][]} [shots] shots fired since the last state: [ox,oy,oz, ex,ey,ez, kind]
+ */
+export function encodeState(id, k, t, core, flags, shots) {
+  const m = {
     t: "s",
     i: id,
     k,
@@ -177,6 +180,14 @@ export function encodeState(id, k, t, core, flags) {
     v: [r2(core.vx), r2(core.vy), r2(core.vz)],
     f: flags,
   };
+  if (shots?.length) m.x = shots;
+  return m;
+}
+
+/** shots carried by a state message, validated */
+export function decodeShots(m) {
+  if (!Array.isArray(m?.x)) return [];
+  return m.x.filter((s) => Array.isArray(s) && s.length === 7 && s.every(Number.isFinite)).slice(0, 12);
 }
 
 /** message -> Snapshot, or null if malformed */

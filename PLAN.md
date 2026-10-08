@@ -63,7 +63,7 @@ Each milestone ends with something runnable.
       instead). Touchpad: arrow-key aiming + F to fire, and a hint when the OS pauses the
       touchpad while typing.
 - [ ] **M8 — Minimap + HUD.** Mostly done along the way (page minimap with player arrow and burn
-      marks, ammo, CV integrity). Left: zoom/rotate minimap option, kill feed, end screen at 0%.
+      marks, ammo, CV integrity). Left: zoom/rotate minimap option, end screen at 0% (kill feed came with MP4).
 - [ ] **M9 — Polish.** Multi-page CVs (pages laid side by side), settings panel (scale, height,
       mouse sensitivity), performance pass, restart / load another CV.
 - [x] **MP1 — Lobby + shared map.** "Invite friends" on the pause card opens a room (only then:
@@ -93,8 +93,20 @@ Each milestone ends with something runnable.
       150 shots at the same letters (2 contested kills went to the host), identical alive letters,
       HP, integrity and counts on both; a late joiner matched too. Floor scorch marks and remote
       tracers / gunshots moved to MP4.
-- [ ] **MP4 — PvP.** Hitboxes, 100 HP, 25 body / 50 head, regen after 5 s without damage, respawn,
-      kill feed, scoreboard. Also: other players' tracers and gunshots, floor scorch marks shared.
+- [x] **MP4 — PvP.** Hitboxes (body capsule + head sphere, standing / crouched), 100 HP, 25 body /
+      50 head, linear falloff past 40 m to 60 % at 120 m+, regen 8 HP/s after 5 s without damage.
+      The shooter's screen decides the hit, the host rewinds the victim to that moment and checks it.
+      Death: 3 s killcam on the killer, collapse for the others, auto respawn at the free spot farthest
+      from enemies with full ammo and 2 s spawn protection (ends when you shoot). Health bar, damage
+      flash + direction arc, kill feed, Tab scoreboard (K/D, letters, ping). Others' tracers, muzzle
+      flashes, positional gunshots and floor scorch play in step with their avatar; a shooter shows on
+      everyone's minimap for 1.5 s. A host in a hidden tab keeps the network running on a timer.
+      Fix: your own tracers never showed (the muzzle point was a shared vector `tracer()` overwrote).
+      `npm run sim:pvp`: host + 5 guests fight 90 s with 8 % fake hits, all PASS at 80 ± 40 and
+      200 ± 150 ms (≈ 90–97 kills, every fake refused, 0 honest hits refused). Two headless Chromium
+      tabs at 80 ± 40 ms / 5 % loss: 4 body shots or 2 headshots kill, killcam, kill feed, respawn
+      with protection, guest → host hits pass the rewind check, 5/5 remote shots played, identical
+      scoreboards; a host with no animation frames still sends ~9 states/s.
 - [ ] **MP5 — Match flow + ship.** First to 10 → end screen → rematch on a fresh CV, disconnect
       handling, GitHub Pages deploy + real remote testing (ping display already done in MP2).
 
@@ -106,20 +118,26 @@ Each milestone ends with something runnable.
 - **One link per guest** (`net/peerLink.js`): the guest offers, the host answers. Channel `rel`
   (reliable, ordered) for events and the PDF (16 KB chunks with backpressure); `fast` (unordered,
   no retransmits) for player state and ping/pong.
-- **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list, and
-  validates letter hits (MP3). Star topology: guests only talk to the host.
+- **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list,
+  validates letter hits (MP3) and referees PvP (MP4). Star topology: guests only talk to the host.
 - **Messages** (JSON, `NET_VERSION` = 3). `rel`:
   `hello {v,name}` → `welcome {you,players,map,pdf,world}` + PDF bytes, or `reject {reason}` (version,
-  full); `world` = destruction snapshot `{dead:[id…], hp:[[id,hp]…], kills:[[player,n]…]}`;
+  full); `world` = `{letters, combat}`: `letters` = destruction snapshot `{dead:[id…], hp:[[id,hp]…],
+  kills:[[player,n]…]}`, `combat` = `[[player, hp, alive, protectedUntil, kills, deaths]…]` (MP4);
   `ready {hash,count}` once the guest's map is built; `players` on every change; `pings {p:[[id,ms]…]}`
   every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage` (a guest
   queues them while its map loads and replays them on `setGameHandler`).
   Destruction (MP3): `hits {h:[[id, px,py,pz, nx,ny,nz, dx,dy,dz]…]}` guest → host every 50 ms;
   `dmg {e:[[type, id, by, hp, px,py,pz, a,b,c]…]}` host → all every 50 ms (type 0 hit, `a,b,c` = surface
   normal; 1 kill, `a,b,c` = bullet direction); `hitNo {id,hp}` host → shooter for a refused hit.
+  PvP (MP4): `pvp {v,h,d,p:[x,y,z],vt}` shooter → host (victim, headshot, distance, hit point, `vt` =
+  when the shooter saw the victim, host clock); host → all: `hurt {v,by,hp,h,s:[x,z]}` (`s` = shooter
+  position for the direction arc), `death {v,by,h}`, 3 s later `respawn {v,x,z,y,u}` (`y` = yaw,
+  `u` = end of spawn protection).
   `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
   state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly,
-  ~110 bytes). Other fast types go to `onFastMessage`.
+  ~110 bytes) plus, when we fired since the last state, `x:[[ox,oy,oz, ex,ey,ez, kind]…]` (≤ 12
+  shots; kind 0 miss, 1 floor, 2 letter, 3 player). Other fast types go to `onFastMessage`.
 - **State sync** (`net/sync.js`, MP2): each client sends its own state at 20 Hz once its intro is over
   and its clock is synced; the host relays guest states to the other guests (overwriting `i` with
   the sender's id). ~110 B × 20 Hz per player: with 8 players the host uploads ≈ 1–1.5 Mbit/s.
@@ -143,6 +161,17 @@ Each milestone ends with something runnable.
   snapshot *before* registering the guest, flushing pending events to the others first, so nothing is
   missed or applied twice; the guest applies it with silent kills (no shards). `netsim` sends reliable
   messages through one in-order queue (separate timers could overtake each other).
+- **Combat** (`net/combat.js` pure JS, glue in `game/pvp.js`, MP4): what you see is what you hit. The
+  shooter raycasts the hitboxes (`net/hitbox.js`) at the *interpolated* positions it draws and sends
+  `pvp`; the host's own hits apply directly. The host checks shooter + victim alive, victim not
+  protected, and rewinds the victim's 2 s position history to `vt`: the claimed point must be within
+  1.2 m + body radius (`rejectedBy` counts dead / protected / rewind refusals). 100 HP, 25 body / 50
+  head, falloff past 40 m to 60 % at 120 m+, regen 8 HP/s after 5 s (also run locally for display;
+  every `hurt` carries the host's exact HP), respawn after 3 s with 2 s protection. The host's rewind
+  history comes from relayed state messages + its own player. Shots ride in the next 20 Hz state
+  (`x`) and are played when the delayed avatar reaches that moment, so tracer and gun line up.
+  Browsers stop animation frames in hidden tabs, so a 100 ms timer keeps sending states and updating
+  letters + combat whenever frames stop (a host can switch tabs). `NET_VERSION` stays 3.
 - **Map fingerprint** (`net/mapHash.js`): entity count + FNV-1a hash of kinds, glyph ids and footprints
   rounded to 10 cm. Entity ids are what later sync uses, so a count mismatch kicks the guest; a hash
   mismatch is only logged (JS engines may round differently).
@@ -164,4 +193,4 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run sim -- example_cv.pdf` runs the headless movement/collision test.
 `npm run signal` starts a local signaling server for LAN multiplayer (open the game with `?broker=ws://<ip>:9000`).
 `npm run test:interp` tests remote-player smoothing under simulated networks; `npm run sim:net` tests shared
-destruction (`LAG=`, `JITTER=`, `SEED=`); `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser.
+destruction and `npm run sim:pvp` player vs player (`LAG=`, `JITTER=`, `SEED=`); `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser.

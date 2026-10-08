@@ -18,6 +18,7 @@ shot to pieces. See [PLAN.md](PLAN.md) for the roadmap.
 | Space | jump (enough to climb onto body text, not onto the name) |
 | C | crouch (eyes drop below body-text height: cover) |
 | V | noclip fly, Q/E down/up (debug) |
+| Tab (hold) | scoreboard (multiplayer) |
 | M | mute |
 | I | replay the intro |
 | Esc | pause |
@@ -44,7 +45,7 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `room` (the open multiplayer room, if any) and `sync` (other players: buffers, avatars, stats).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 
 ## Multiplayer
@@ -63,17 +64,26 @@ network connections at all: the room opens only when you click **Invite friends*
 **Join**: open the link → type a name → **Join game**. The host's browser sends you the original PDF
 and your browser rebuilds the same map from it. The name is remembered in `localStorage`.
 
-**What works now (MP3)**: lobby + shared map (MP1), you see each other (MP2), and letters break for
-everyone. Every player is a low-poly soldier in their colour holding the same gun (walk/run, crouch,
-jump, aim pitch), moving smoothly even on a laggy connection. Name tags and minimap dots (with a facing
-tick) appear only while that player is in your line of sight, not through letters. Positional
+**What works now (MP4)**: lobby + shared map (MP1), you see each other (MP2), letters break for
+everyone (MP3), and you can shoot each other (MP4). Every player is a low-poly soldier in their colour
+holding the same gun (walk/run, crouch, jump, aim pitch), moving smoothly even on a laggy connection.
+Name tags and minimap dots (with a facing tick) appear only while that player is in your line of sight, not through letters. Positional
 footsteps, ping per guest in the player list (amber > 140 ms, red > 250 ms), "connection lost…" on a
 tag after 2.5 s without updates, and a soft push so players can't stand inside each other. Guests
 spawn on their own spot around the middle.
 Your own shots hit and shatter letters instantly; the host checks them and everyone sees the same
 letters fall (a hit the host refuses puts the letter back, its soot stays on the paper). Late joiners
 get the map with the real damage already on it. The player list shows "N letters" destroyed per
-player. Floor scorch marks and other players' tracers / gunshots come with MP4 (see PLAN.md).
+player.
+PvP: 100 HP, 25 per body shot / 50 per headshot (its own crosshair marker), less past 40 m (60 % at 120 m+);
+health comes back at 8 HP/s after 5 s without damage. What you see is what you hit: your screen
+decides the hit, the host checks it against where the victim really was at that moment. Health bar
+(bottom centre), red flash + an arc pointing at the shooter. When you die: 3 s killcam watching your
+killer ("Killed by X · headshot"), then you respawn far from enemies with full ammo and 2 s of spawn
+protection (ends when you shoot). Kill feed "Killer ▸ Victim", **Tab** scoreboard (kills, deaths,
+letters, ping). You see and hear others' tracers, muzzle flashes and gunshots (duller with distance),
+with floor scorch marks; whoever shoots shows on everyone's minimap for 1.5 s, even through letters.
+A host in a background tab keeps the game running for the guests.
 
 ### Testing on a bad connection
 
@@ -138,11 +148,18 @@ rejected), then every map must match the host's (alive letters, HP, per-player c
 `LAG=`, `JITTER=` (ms) and `SEED=`. Now: 80 ± 40 ms and 200 ± 150 ms both pass, ~1,080 letters
 destroyed, ~315 rejected hits, 127–143 predicted kills undone, 0 mismatches.
 
+`npm run sim:pvp` tests player vs player (`src/net/combat.js`): a host and 5 guests fight for 90 s
+over a laggy fake link, 8 % of hits are fakes (claimed far from the victim). Every screen must end with
+the host's kills, deaths and HP, kills = deaths, no damage while dead or protected, every death followed
+by a respawn, every fake refused by the rewind check and no honest hit refused. Same `LAG=`, `JITTER=`,
+`SEED=`. Now: 80 ± 40 ms and 200 ± 150 ms both pass, ≈ 90–97 kills, 0 honest hits refused.
+
 ## Layout
 
 ```
 src/
-  main.js               upload / join screen -> loading -> game loop, host + guest wiring
+  main.js               upload / join screen -> loading -> game loop, host + guest wiring;
+                        100 ms timer keeps the network running when a hidden tab gets no frames
   config.js             all tunables (scale, heights, speeds, intro timings, net)
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
   pdf/outlines.js       path commands -> polygons with holes (pure, no three.js)
@@ -152,15 +169,19 @@ src/
   world/collision.js    spatial grid + circle-vs-letter-outline collision (pure JS)
   world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
   player/playerCore.js  movement simulation: accel, jump, gravity, step-up (pure JS)
-  player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip)
-  player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash; buildGun()
-  player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim
+  player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag
+  player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash; buildGun();
+                        hooks for player hits (playerRay / onPlayerHit / onFired / blocked)
+  player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim; die / revive
   world/destruction.js  letter HP, hit effects + wobble, shattering, burning the ink off the paper;
                         remote hits, silent kills (late join), revive (refused prediction)
   fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters
   fx/particles.js       sparks and dust (soft points, one draw call each)
-  audio/sfx.js          procedural Web Audio: gun, impacts, crumble, steps (own + other players'), reload
-  ui/hud.js             crosshair hit markers, ammo, CV integrity, toasts
+  fx/remoteShots.js     other players' shots: tracer, muzzle flash, positional gunshot, floor scorch, player puff
+  audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
+                        steps (own + other players'), reload, body hit, hurt
+  ui/hud.js             crosshair hit markers (letter, player, headshot, kill), ammo, CV integrity, toasts
+  ui/combatHud.js       health bar, damage flash + direction, killcam text, spawn protection, kill feed, Tab scoreboard
   ui/minimap.js         page raster + player arrow + dots for other players in sight
   ui/nameTags.js        HTML name tags projected from 3D over other players
   ui/lobby.js           join screen, invite box (pause card), player list with ping, notice feed, saved nickname
@@ -169,15 +190,21 @@ src/
   net/netsim.js         ?netsim= developer network simulator (lag, jitter, loss on what this tab sends)
   net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, ping/pong, leave/kick
   net/clock.js          ClockSync: guests estimate the host's clock (shared game time) from ping/pong
-  net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format (pure JS)
-  net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push
+  net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format
+                        incl. shots fired (`x`) (pure JS)
+  net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push;
+                        shots in states, raycast against players as we see them, minimap reveal of shooters
   net/letters.js        LetterNet: shared destruction, predicted hits, host validation, late-join snapshot (pure JS)
+  net/combat.js         Combat: PvP referee: HP, damage + falloff, rewind check, deaths, respawns, regen, K/D (pure JS)
+  net/hitbox.js         player hitboxes (body capsule + head sphere, standing / crouched), ray vs players (pure JS)
+  game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 tools/extract-debug.mjs
 tools/sim-player.mjs
 tools/test-raycast.mjs
 tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
 tools/sim-net.mjs       shared destruction: 5 players on a laggy fake link must end with the host's map (`npm run sim:net`)
+tools/sim-pvp.mjs       PvP: host + 5 guests fight 90 s on a laggy fake link, scores agree, fakes refused (`npm run sim:pvp`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
 ```

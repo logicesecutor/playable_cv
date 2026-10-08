@@ -9,8 +9,9 @@
 //     behind letters (line of sight through the collision grid)
 //   - soft push: our own body slides off other players
 import * as THREE from "three";
-import { SnapshotBuffer, FLAG, encodeState, decodeState } from "./snapshots.js";
+import { SnapshotBuffer, FLAG, encodeState, decodeState, decodeShots } from "./snapshots.js";
 import { Avatar } from "../player/avatar.js";
+import { hitboxOf, rayPlayers } from "./hitbox.js";
 
 const SEND_INTERVAL = 50; // ms (20 Hz)
 const VIS_INTERVAL = 0.1; // s between line-of-sight checks
@@ -31,6 +32,9 @@ class RemotePlayer {
     this.visible = false; // in view and in line of sight
     this.stepDist = 0;
     this.prev = new THREE.Vector3();
+    this.shots = []; // {t, s}: their shots, played back in step with their (delayed) avatar
+    this.revealUntil = 0; // shown on the minimap after shooting, even out of sight
+    this.dead = false;
   }
 }
 
@@ -58,6 +62,14 @@ export class NetSync {
     this._pts = [new THREE.Vector3(), new THREE.Vector3()];
     this._anchor = new THREE.Vector3();
     this.stats = { sent: 0, received: 0 };
+    this.outShots = []; // our shots since the last state message
+    // hooks for the game (MP4)
+    /** @type {(id:number, shot:number[]) => void} play someone's shot (tracer, sound, impact) */
+    this.onRemoteShot = null;
+    /** @type {(id:number, snap:any) => void} a state arrived (host: rewind history) */
+    this.onState = null;
+    /** @type {(id:number) => void} host: this player fired (ends spawn protection) */
+    this.onFired = null;
     this.setPlayers(o.room.players);
   }
 
@@ -97,6 +109,47 @@ export class NetSync {
     r.buffer.push(snap, now);
     r.lastArrival = now;
     this.stats.received++;
+    this.onState?.(msg.i, snap);
+    const shots = decodeShots(msg);
+    if (shots.length) {
+      this.onFired?.(msg.i);
+      for (const s of shots) r.shots.push({ t: snap.t, s });
+    }
+  }
+
+  /** our weapon fired: goes out with the next state message */
+  queueShot(from, to, kind) {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    if (this.outShots.length < 12) this.outShots.push([r2(from.x), r2(from.y), r2(from.z), r2(to.x), r2(to.y), r2(to.z), kind]);
+  }
+
+  /** a player died / came back: collapse the soldier, hide tag + dot, ignore for hits */
+  setDead(id, dead) {
+    const r = this.remotes.get(id);
+    if (!r) return;
+    r.dead = dead;
+    if (dead) r.avatar.die();
+    else {
+      r.avatar.revive();
+      r.buffer.reset(); // the respawn is a teleport: snap to the new spot
+      r.has = false;
+      r.avatar.root.visible = false;
+    }
+  }
+
+  /**
+   * Nearest other player hit by a ray (what WE see: their delayed, interpolated position).
+   * @returns {null | {t:number, id:number, head:boolean, x:number, y:number, z:number, viewTime:number}}
+   */
+  raycastPlayers(ox, oy, oz, dx, dy, dz, maxT) {
+    const targets = [];
+    for (const r of this.remotes.values()) {
+      if (!r.has || r.dead || !r.avatar.root.visible) continue;
+      targets.push({ id: r.id, box: hitboxOf(r.pos.x, r.pos.y, r.pos.z, r.avatar.crouch) });
+    }
+    const hit = rayPlayers(targets, ox, oy, oz, dx, dy, dz, maxT);
+    if (hit) hit.viewTime = this.room.now() - this.remotes.get(hit.id).buffer.delay;
+    return hit;
   }
 
   /**
@@ -113,7 +166,8 @@ export class NetSync {
       const c = this.player.core;
       const sprint = Math.hypot(c.vx, c.vz) > this.cfg.player.walkSpeed + 0.5;
       const flags = (c.crouching ? FLAG.crouch : 0) | (c.grounded ? FLAG.grounded : 0) | (sprint ? FLAG.sprint : 0) | (c.fly ? FLAG.fly : 0);
-      const msg = encodeState(this.room.selfId, this.k++, now, c, flags);
+      const msg = encodeState(this.room.selfId, this.k++, now, c, flags, this.outShots);
+      this.outShots = [];
       if (this.room.isHost) this.room.broadcastFast(msg);
       else this.room.sendFast(msg);
       this.stats.sent++;
@@ -128,8 +182,16 @@ export class NetSync {
       if (!r.has || r.pos.distanceTo(target) > 3) r.pos.copy(target); // first state / teleport: snap
       else r.pos.lerp(target, Math.min(1, dt * 30)); // hides small corrections after extrapolating
       r.has = true;
-      r.avatar.root.visible = true;
+      if (!r.dead) r.avatar.root.visible = true;
       r.avatar.update(dt, { ...s, x: r.pos.x, y: r.pos.y, z: r.pos.z });
+
+      // their shots, in step with where we draw them (or right away if they're very late)
+      const playUntil = now - r.buffer.delay;
+      while (r.shots.length && (r.shots[0].t <= playUntil || r.shots[0].t < now - 1000)) {
+        const { s: shot } = r.shots.shift();
+        r.revealUntil = now + 1500;
+        this.onRemoteShot?.(r.id, shot);
+      }
 
       // footsteps
       const grounded = (s.f & FLAG.grounded) !== 0;
@@ -153,7 +215,7 @@ export class NetSync {
       this._m.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this._frustum.setFromProjectionMatrix(this._m);
       for (const r of this.remotes.values()) {
-        r.visible = playing && r.has && this.canSee(r);
+        r.visible = playing && r.has && !r.dead && this.canSee(r);
       }
     }
 
@@ -224,7 +286,8 @@ export class NetSync {
   minimapDots() {
     const out = [];
     for (const r of this.remotes.values()) {
-      if (r.visible) out.push({ x: r.pos.x, z: r.pos.z, yaw: r.s.yaw ?? 0, color: r.info.color });
+      // in sight, or just fired a shot (gunfire gives you away, even through letters)
+      if (!r.dead && r.has && (r.visible || r.revealUntil > this.room.now())) out.push({ x: r.pos.x, z: r.pos.z, yaw: r.s.yaw ?? 0, color: r.info.color });
     }
     return out;
   }

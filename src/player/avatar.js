@@ -36,6 +36,7 @@ export class Avatar {
 
     this.root = new THREE.Group();
     this.root.name = "avatar";
+    this.root.rotation.order = "YXZ"; // yaw, then tip over around the body's own axis when dying
 
     // ---- hips (everything above the legs hangs off this, so crouching just lowers it)
     this.hips = new THREE.Group();
@@ -88,6 +89,8 @@ export class Avatar {
     this._arm(M, -0.24, 0.02, 0.0, 0.06, -0.07, -0.52);
 
     this.phase = 0;
+    this.dead = false;
+    this.deadT = 0; // seconds since death (collapse animation)
     this.crouch = 0; // 0 standing .. 1 crouched (smoothed)
     this.air = 0; // 0 grounded .. 1 airborne (smoothed)
   }
@@ -111,6 +114,21 @@ export class Avatar {
    * @param {{x:number,y:number,z:number,yaw:number,pitch:number,vx:number,vz:number,f:number}} s
    */
   update(dt, s) {
+    if (this.dead) {
+      // collapse backwards, then sink into the paper and disappear until the respawn
+      this.deadT += dt;
+      const k = Math.min(1, this.deadT / 0.55);
+      const ease = 1 - Math.pow(1 - k, 3);
+      this.root.rotation.x = ease * 1.45;
+      this.root.position.y = this._deadY - Math.max(0, this.deadT - 2) * 0.6;
+      this.hips.position.y = HIP - ease * 0.55;
+      for (const leg of this.legs) {
+        leg.thigh.rotation.x = ease * 1.2;
+        leg.shin.rotation.x = -ease * 1.4;
+      }
+      this.root.visible = this.deadT < 3;
+      return;
+    }
     this.root.position.set(s.x, s.y, s.z);
     this.root.rotation.y = s.yaw;
 
@@ -149,6 +167,19 @@ export class Avatar {
     this.torso.rotation.x = -0.7 * c - (speed > 8 ? 0.15 : 0) + pitch * 0.2;
     this.aim.rotation.x = pitch * 0.8 + 0.7 * c + (speed > 8 ? 0.15 : 0);
     this.head.rotation.x = pitch * 0.6 + 0.7 * c * 0.8;
+  }
+
+  die() {
+    if (this.dead) return;
+    this.dead = true;
+    this.deadT = 0;
+    this._deadY = this.root.position.y;
+  }
+
+  revive() {
+    this.dead = false;
+    this.root.rotation.x = 0;
+    this.root.visible = true;
   }
 
   /** world position for the name tag (above the helmet) */

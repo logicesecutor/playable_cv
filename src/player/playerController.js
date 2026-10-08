@@ -29,6 +29,7 @@ export class PlayerController {
     this.onFootstep = null;
     this.onLand = null;
 
+    this.dead = false; // multiplayer: killed, waiting to respawn
     this.camY = 0; // smoothed eye height (absorbs step-ups)
     this.punch = 0; // visual recoil pitch (rad), decays
     this.shake = 0; // camera shake amplitude (m), decays
@@ -99,6 +100,7 @@ export class PlayerController {
 
   update(dt) {
     if (!this.enabled) return;
+    if (this.dead) return; // multiplayer: the killcam drives the camera until we respawn
     const k = this.keys;
 
     // arrow keys aim: a full keyboard alternative to the mouse / touchpad

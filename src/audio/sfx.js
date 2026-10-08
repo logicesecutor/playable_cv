@@ -72,14 +72,31 @@ export class Sfx {
 
   // ------------------------------------------------------------------ sounds
 
-  gunshot() {
+  /**
+   * @param {{x:number,y:number,z:number}} [pos]       someone else's shot: positional, duller with distance
+   * @param {{x:number,y:number,z:number}} [listener]
+   */
+  gunshot(pos, listener) {
     if (!this.ready) return;
     const { ctx } = this;
     const t = ctx.currentTime;
     const out = ctx.createGain();
     out.gain.value = 0.9;
-    out.connect(this.master);
-    out.connect(this.reverbSend);
+    if (pos) {
+      const dist = listener ? Math.hypot(pos.x - listener.x, pos.y - listener.y, pos.z - listener.z) : 20;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 14000 / (1 + dist / 25); // far shots lose their crack
+      const pan = this.panner(pos);
+      pan.refDistance = 6;
+      out.connect(lp).connect(pan).connect(this.master);
+      const send = ctx.createGain();
+      send.gain.value = Math.min(1.2, 0.5 + dist / 120); // and are mostly echo
+      out.connect(send).connect(this.reverbSend);
+    } else {
+      out.connect(this.master);
+      out.connect(this.reverbSend);
+    }
     const pitch = 0.92 + Math.random() * 0.16;
 
     // crack
@@ -116,7 +133,39 @@ export class Sfx {
     const cg = ctx.createGain();
     cg.gain.setValueAtTime(0.25, t + 0.045);
     cg.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
-    c.connect(hp).connect(cg).connect(this.master);
+    if (!pos) c.connect(hp).connect(cg).connect(this.master);
+  }
+
+  /** a bullet hitting a player: a dull thud */
+  bodyHit(pos, head) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.frequency.setValueAtTime(head ? 900 : 220, t);
+    o.frequency.exponentialRampToValueAtTime(head ? 400 : 90, t + 0.08);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(head ? 0.5 : 0.7, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    const pan = this.panner(pos);
+    o.connect(g).connect(pan).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.13);
+  }
+
+  /** we took damage: a short low "oof" thump, non-positional */
+  hurt(amount) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(55, t + 0.18);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(Math.min(0.8, 0.25 + amount / 60), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.24);
   }
 
   dryFire() {

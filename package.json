@@ -13,7 +13,8 @@
     "test:ray": "node tools/test-raycast.mjs",
     "signal": "node tools/signal-server.mjs",
     "test:interp": "node tools/test-interp.mjs",
-    "sim:net": "node tools/sim-net.mjs"
+    "sim:net": "node tools/sim-net.mjs",
+    "sim:pvp": "node tools/sim-pvp.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.2.108",

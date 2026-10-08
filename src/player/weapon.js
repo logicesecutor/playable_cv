@@ -27,9 +27,18 @@ export class Weapon {
     this.swayY = 0;
     this.shots = 0;
     this.hits = 0;
-    /** (result: "hit" | "kill" | "floor" | "miss") => void */
+    /** (result: "hit" | "kill" | "floor" | "miss" | "player" | "head") => void */
     this.onShot = null;
     this.onAmmo = null;
+    /** multiplayer: (ox,oy,oz, dx,dy,dz, maxT) => nearest player hit {t,id,head,x,y,z} | null */
+    this.playerRay = null;
+    /** multiplayer: our bullet hit a player: ({t,id,head,x,y,z}, dir) => void */
+    this.onPlayerHit = null;
+    /** multiplayer: every shot, for the others' tracers: (from:Vector3, to:Vector3, kind) => void
+     *  kind 0 miss, 1 floor, 2 letter, 3 player */
+    this.onFired = null;
+    /** no shooting (dead) */
+    this.blocked = false;
 
     // ---- view-model scene
     this.viewScene = new THREE.Scene();
@@ -92,7 +101,7 @@ export class Weapon {
   }
 
   canShoot() {
-    return this.player.locked && this.player.enabled;
+    return this.player.locked && this.player.enabled && !this.blocked;
   }
 
   dryFireCheck() {
@@ -117,7 +126,7 @@ export class Weapon {
         this.onAmmo?.(this);
       }
     }
-    if (this.trigger && this.player.enabled && this.player.locked && this.reloading === 0) {
+    if (this.trigger && this.player.enabled && this.player.locked && !this.blocked && this.reloading === 0) {
       if (this.ammo > 0) {
         while (this.cooldown <= 0 && this.ammo > 0) {
           this.fire();
@@ -166,19 +175,39 @@ export class Weapon {
     dx /= l; dy /= l; dz /= l;
     const p = cam.position;
     const hit = this.collision.raycast(p.x, p.y, p.z, dx, dy, dz, w.range);
+    // other players in front of the letter / floor?
+    const ph = this.playerRay?.(p.x, p.y, p.z, dx, dy, dz, hit ? hit.t : w.range) || null;
 
     let result = "miss";
-    if (hit) {
+    let kind = 0;
+    if (ph) {
+      result = ph.head ? "head" : "player";
+      kind = 3;
+      this.hits++;
+      for (let i = 0; i < 8; i++) {
+        const sp = 2 + Math.random() * 4;
+        this.destruction.sparks.emit(ph.x, ph.y, ph.z, -dx * sp + (Math.random() - 0.5) * 3, Math.random() * sp, -dz * sp + (Math.random() - 0.5) * 3, 0.15 + Math.random() * 0.15, 0.06, 0.02, 3.0, 0.6, 0.4);
+      }
+      this.sfx.bodyHit(ph, ph.head);
+      this.onPlayerHit?.(ph, { x: dx, y: dy, z: dz });
+    } else if (hit) {
       result = this.destruction.bullet(hit, { x: dx, y: dy, z: dz });
+      kind = result === "floor" ? 1 : 2;
       if (result !== "floor") this.hits++;
     }
 
     // muzzle in world space: view-model space == camera space
     this.gun.root.updateMatrixWorld();
-    const muzzle = this.gun.root.localToWorld(this._v.copy(this.gun.muzzle));
+    // (own vector: tracer() reuses this._v, which used to wipe the muzzle point and hide every tracer)
+    const muzzle = this.gun.root.localToWorld(this.gun.muzzle.clone());
     cam.localToWorld(muzzle);
-    const end = hit ? new THREE.Vector3(hit.x, hit.y, hit.z) : new THREE.Vector3(p.x + dx * w.range, p.y + dy * w.range, p.z + dz * w.range);
+    const end = ph
+      ? new THREE.Vector3(ph.x, ph.y, ph.z)
+      : hit
+        ? new THREE.Vector3(hit.x, hit.y, hit.z)
+        : new THREE.Vector3(p.x + dx * w.range, p.y + dy * w.range, p.z + dz * w.range);
     this.tracer(muzzle, end);
+    this.onFired?.(muzzle, end, kind);
     this.light.position.copy(muzzle);
 
     // feedback
