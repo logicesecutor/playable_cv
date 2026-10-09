@@ -1,10 +1,12 @@
 // Model viewer (dev tool): http://localhost:5173/viewer.html
-// Shows the Blender models as three.js renders them, next to the old box soldier and the real
-// hitboxes, so proportions, colours and animation clips can be checked without starting a match.
+// The Blender characters exactly as the game shows them (createAvatar + the same procedural
+// poses), next to the old box soldier and the real hitboxes. "measure" checks that the visual
+// head sits inside the head hitbox, standing and crouched.
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { preloadModels, reloadModels, instantiate, getModel, MODEL_FILES } from "../assets/models.js";
-import { Avatar } from "../player/avatar.js";
+import { preloadModels, reloadModels, instantiate, getModel } from "../assets/models.js";
+import { BoxAvatar, createAvatar } from "../player/avatar.js";
+import { OUTFITS } from "../net/room.js";
 import { FLAG } from "../net/snapshots.js";
 import { hitboxOf } from "../net/hitbox.js";
 
@@ -18,163 +20,173 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping; // same as the game
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x16171c);
-const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 100);
-camera.position.set(-1.2, 1.7, -4.2); // in front of the models (they face -Z)
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 100);
+camera.position.set(-1.5, 1.8, -5.5); // in front of the characters (they face -Z)
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 1.0, 0);
+controls.target.set(0.3, 1.0, 0);
 controls.update();
 
 // lights like the game's world (buildWorld.js)
 scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x2a2622, 1.1));
 const sun = new THREE.DirectionalLight(0xfff3e0, 2.6);
-sun.position.set(3, 6, 4);
+sun.position.set(-3, 6, -4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 0.5, far: 20 });
+Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 0.5, far: 20 });
 scene.add(sun);
 
 // paper floor
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: 0xf3efe6, roughness: 0.95 }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshStandardMaterial({ color: 0xf3efe6, roughness: 0.95 }));
 floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
-const grid = new THREE.GridHelper(12, 24, 0xc9c3b4, 0xddd8cc);
+const grid = new THREE.GridHelper(14, 28, 0xc9c3b4, 0xddd8cc);
 grid.position.y = 0.001;
 scene.add(grid);
 
-// ---- the old soldier, for scale
-const old = new Avatar("#4d8dff");
-old.root.position.set(-1.3, 0, 0);
-scene.add(old.root);
+// ---- poses: the network state the avatars would get in a game
+const POSES = {
+  idle: { speed: 0, f: FLAG.grounded },
+  walk: { speed: 6, f: FLAG.grounded },
+  sprint: { speed: 9.5, f: FLAG.grounded },
+  crouch: { speed: 0, f: FLAG.grounded | FLAG.crouch },
+  "crouch walk": { speed: 3, f: FLAG.grounded | FLAG.crouch },
+  jump: { speed: 5, f: 0 },
+  dead: { speed: 0, f: FLAG.grounded, dead: true },
+};
+let pose = "idle";
 
-// ---- hitbox overlay (follows the "crouched" checkbox)
+// ---- characters: [box soldier, one per outfit]
+const SPACING = 1.4;
+let bodies = []; // {avatar, x, label, mixer?, skeleton?}
 const hbMat = new THREE.MeshBasicMaterial({ color: 0xff3b6b, wireframe: true, transparent: true, opacity: 0.35 });
 const hitboxes = new THREE.Group();
 scene.add(hitboxes);
-function drawHitboxes() {
-  hitboxes.clear();
-  const crouch = $("crouch").checked ? 1 : 0;
-  for (const x of [0, -1.3]) {
-    const b = hitboxOf(x, 0, 0, crouch);
-    const cap = new THREE.Mesh(new THREE.CapsuleGeometry(b.r, b.y1 - b.y0, 6, 16), hbMat);
-    cap.position.set(b.x, (b.y0 + b.y1) / 2, b.z);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(b.hr, 16, 10), hbMat);
-    head.position.set(b.hx, b.hy, b.hz);
-    hitboxes.add(cap, head);
+let gunDisplay = null;
+
+function placeBodies() {
+  for (const b of bodies) {
+    b.avatar.dispose();
+    b.skeleton?.removeFromParent();
   }
-}
-
-// ---- the Blender models
-let player = null; // instantiate("player")
-let gun = null; // instantiate("gun")
-let mixer = null;
-let skeleton = null;
-let activeClip = null;
-
-function clearModels() {
-  player?.dispose();
-  gun?.dispose();
-  skeleton?.removeFromParent();
-  player = gun = mixer = skeleton = null;
-}
-
-function placeModels() {
-  clearModels();
+  gunDisplay?.dispose();
   const accent = $("accent").value;
   const lines = [];
-  player = instantiate("player", { accent });
-  if (player) {
-    scene.add(player.root);
-    mixer = new THREE.AnimationMixer(player.model);
-    skeleton = new THREE.SkeletonHelper(player.model);
-    skeleton.visible = $("skeleton").checked;
-    scene.add(skeleton);
-    lines.push(`player: ${stats(player.model)}`);
-  } else lines.push(`player: ${MODEL_FILES.player} not exported yet`);
-  gun = instantiate("gun", { accent });
-  if (gun) {
-    gun.root.position.set(1.2, 1.2, 0);
-    gun.root.rotation.y = Math.PI / 2; // barrel pointing right: side view from the default camera
-    scene.add(gun.root);
-    lines.push(`gun: ${stats(gun.model)}`);
-  } else lines.push(`gun: ${MODEL_FILES.gun} not exported yet`);
+  bodies = [{ avatar: new BoxAvatar(accent), x: -SPACING, label: "box" }];
+  OUTFITS.forEach((outfit, i) => {
+    const avatar = createAvatar(accent, outfit);
+    const ok = !(avatar instanceof BoxAvatar);
+    lines.push(`${outfit}: ${ok ? stats(avatar.inst.model) : "model not available (box fallback)"}`);
+    const b = { avatar, x: i * SPACING, label: outfit };
+    if (ok) {
+      b.mixer = new THREE.AnimationMixer(avatar.inst.model);
+      b.skeleton = new THREE.SkeletonHelper(avatar.inst.model);
+      b.skeleton.visible = $("skeleton").checked;
+      scene.add(b.skeleton);
+    }
+    bodies.push(b);
+  });
+  for (const b of bodies) scene.add(b.avatar.root);
+  old().root.visible = $("old").checked;
+
+  gunDisplay = instantiate("gun", { accent });
+  if (gunDisplay) {
+    gunDisplay.root.position.set(OUTFITS.length * SPACING, 1.2, 0);
+    gunDisplay.root.rotation.y = Math.PI / 2;
+    scene.add(gunDisplay.root);
+    lines.push(`gun: ${stats(gunDisplay.model)}`);
+  } else lines.push("gun: gun.glb not exported yet");
   $("status").textContent = lines.join("\n");
+  setPose(pose);
   buildClipButtons();
   applyWireframe();
 }
+const old = () => bodies[0].avatar;
 
 function stats(obj) {
-  let tris = 0, meshes = 0, bones = 0;
+  let tris = 0, bones = 0;
   const mats = new Set();
   obj.traverse((o) => {
     if (o.isBone) bones++;
     if (!o.isMesh) return;
-    meshes++;
     const g = o.geometry;
     tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
     [o.material].flat().forEach((m) => mats.add(m.name));
   });
-  return `${Math.round(tris)} tris, ${meshes} mesh, ${bones} bones, [${[...mats].join(", ")}]`;
+  return `${Math.round(tris)} tris, ${bones} bones, [${[...mats].join(", ")}]`;
 }
 
+function setPose(name) {
+  pose = name;
+  for (const b of $("poses").children) b.classList.toggle("on", b.textContent === name);
+  for (const b of bodies) {
+    if (POSES[name].dead) b.avatar.die();
+    else if (b.avatar.dead) b.avatar.revive();
+  }
+}
+for (const name of Object.keys(POSES)) {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.onclick = () => setPose(name);
+  $("poses").appendChild(b);
+}
+
+// ---- clips (Phase 3): played on top of the procedural pose
+let activeClip = null;
 function buildClipButtons() {
   const box = $("clips");
   box.innerHTML = "";
-  const clips = player?.animations || [];
+  const clips = bodies.find((b) => b.mixer)?.avatar.inst.animations || [];
   if (!clips.length) {
     box.innerHTML = '<span class="muted">none yet</span>';
     return;
   }
   for (const clip of clips) {
-    const b = document.createElement("button");
-    b.textContent = clip.name;
-    b.onclick = () => playClip(clip, b);
-    box.appendChild(b);
+    const btn = document.createElement("button");
+    btn.textContent = clip.name;
+    btn.onclick = () => {
+      const on = activeClip !== clip.name;
+      for (const x of box.children) x.classList.remove("on");
+      for (const b of bodies) {
+        if (!b.mixer) continue;
+        b.mixer.stopAllAction();
+        if (on) b.mixer.clipAction(b.avatar.inst.animations.find((c) => c.name === clip.name)).play();
+      }
+      activeClip = on ? clip.name : null;
+      if (on) btn.classList.add("on");
+    };
+    box.appendChild(btn);
   }
-}
-
-function playClip(clip, button) {
-  for (const b of $("clips").children) b.classList.remove("on");
-  if (activeClip === clip.name) {
-    mixer.stopAllAction();
-    activeClip = null;
-    return;
-  }
-  const prev = mixer.existingAction(activeClip && player.animations.find((c) => c.name === activeClip));
-  const action = mixer.clipAction(clip).reset().play();
-  if (prev) action.crossFadeFrom(prev, 0.2, false);
-  activeClip = clip.name;
-  button.classList.add("on");
 }
 
 function applyWireframe() {
   const on = $("wire").checked;
-  for (const m of [player, gun]) m?.model.traverse((o) => o.isMesh && [o.material].flat().forEach((x) => (x.wireframe = on)));
+  for (const b of bodies.slice(1)) b.avatar.inst?.model.traverse((o) => o.isMesh && [o.material].flat().forEach((m) => (m.wireframe = on)));
 }
 
 // ---- UI
 $("hitbox").onchange = () => (hitboxes.visible = $("hitbox").checked);
-$("old").onchange = () => (old.root.visible = $("old").checked);
-$("skeleton").onchange = () => skeleton && (skeleton.visible = $("skeleton").checked);
+$("old").onchange = () => (old().root.visible = $("old").checked);
+$("skeleton").onchange = () => bodies.forEach((b) => b.skeleton && (b.skeleton.visible = $("skeleton").checked));
 $("wire").onchange = applyWireframe;
-$("crouch").onchange = drawHitboxes;
 $("accent").oninput = () => {
-  player?.setAccent($("accent").value);
-  gun?.setAccent($("accent").value);
+  for (const b of bodies.slice(1)) b.avatar.inst?.setAccent($("accent").value);
+  gunDisplay?.setAccent($("accent").value);
 };
 const reload = () => {
   $("status").textContent = "reloading…";
   activeClip = null;
-  reloadModels().then(placeModels);
+  reloadModels().then(placeBodies);
 };
 $("reload").onclick = reload;
 addEventListener("keydown", (e) => e.code === "KeyR" && !e.repeat && reload());
 
-drawHitboxes();
-preloadModels().then(placeModels);
+preloadModels().then(placeBodies);
 
 // ---- loop
 const clock = new THREE.Clock();
+const _v = new THREE.Vector3();
+let measureT = 0;
 function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -183,13 +195,37 @@ function frame() {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
-  mixer?.update(dt);
-  const crouch = $("crouch").checked;
-  old.update(dt, { x: -1.3, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vz: 0, f: FLAG.grounded | (crouch ? FLAG.crouch : 0) });
+  const p = POSES[pose];
+  const pitch = Number($("pitch").value);
+  for (const m of hitboxes.children) m.geometry.dispose();
+  hitboxes.clear();
+  const lines = [];
+  for (const b of bodies) {
+    b.avatar.update(dt, { x: b.x, y: 0, z: 0, yaw: 0, pitch, vx: 0, vz: -p.speed, f: p.f });
+    b.mixer?.update(dt);
+    if (b.avatar.dead) continue;
+    // hitboxes follow the smoothed crouch, like the game's
+    const hb = hitboxOf(b.x, 0, 0, b.avatar.crouch);
+    const cap = new THREE.Mesh(new THREE.CapsuleGeometry(hb.r, hb.y1 - hb.y0, 4, 12), hbMat);
+    cap.position.set(hb.x, (hb.y0 + hb.y1) / 2, hb.z);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(hb.hr, 12, 8), hbMat);
+    head.position.set(hb.hx, hb.hy, hb.hz);
+    hitboxes.add(cap, head);
+    if (b.label !== "box") {
+      b.avatar.root.updateMatrixWorld(true);
+      const c = b.avatar.sightPoints()[0];
+      _v.set(hb.hx, hb.hy, hb.hz);
+      lines.push(`${b.label}: head centre y ${c.y.toFixed(2)} (hitbox ${hb.hy.toFixed(2)}), off by ${c.distanceTo(_v).toFixed(2)} m`);
+    }
+  }
+  if ((measureT -= dt) <= 0) {
+    $("measure").textContent = lines.join("\n");
+    measureT = 0.25;
+  }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 frame();
 
 // for poking around from the console
-Object.assign(window, { THREE, scene, camera, getModel, get player() { return player; }, get gun() { return gun; } });
+Object.assign(window, { THREE, scene, camera, getModel, get bodies() { return bodies; }, setPose });

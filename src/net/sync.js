@@ -10,7 +10,7 @@
 //   - soft push: our own body slides off other players
 import * as THREE from "three";
 import { SnapshotBuffer, FLAG, encodeState, decodeState, decodeShots } from "./snapshots.js";
-import { Avatar } from "../player/avatar.js";
+import { createAvatar } from "../player/avatar.js";
 import { hitboxOf, rayPlayers } from "./hitbox.js";
 
 const SEND_INTERVAL = 50; // ms (20 Hz)
@@ -22,7 +22,7 @@ class RemotePlayer {
     this.id = info.id;
     this.info = info;
     this.buffer = new SnapshotBuffer({ interval: SEND_INTERVAL });
-    this.avatar = new Avatar(info.color);
+    this.avatar = createAvatar(info.color, info.outfit);
     this.avatar.root.visible = false;
     scene.add(this.avatar.root);
     this.s = {}; // sampled network state

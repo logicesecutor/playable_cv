@@ -1,14 +1,15 @@
 // Player hitboxes: a vertical capsule for the body and a sphere for the head, sized like the
-// soldier avatar (and like the first-person player: eyes at 1.65 m standing, 0.95 m crouched).
-// Pure math, no three.js.
+// chibi characters (public/models/player_*.glb; and like the first-person player: eyes at
+// 1.65 m standing, 0.95 m crouched). The big chibi head gets a big head sphere: what you see is
+// what you hit. Pure math, no three.js.
 
 export const HITBOX = {
   radius: 0.35, // body capsule radius (= player collision radius)
-  bodyTop: 1.45, // standing: top of the body capsule (shoulders)
-  bodyTopCrouch: 0.78,
+  bodyTop: 1.32, // standing: top of the body capsule (shoulders, where the big head starts)
+  bodyTopCrouch: 0.72,
   eye: 1.65,
   eyeCrouch: 0.95,
-  headRadius: 0.17,
+  headRadius: 0.29, // the head is ~0.62 m tall (was 0.17 for the box soldier)
 };
 
 /** hitbox shape for a player whose feet are at (x, y, z); crouch 0..1 */

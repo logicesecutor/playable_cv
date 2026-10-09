@@ -14,7 +14,8 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 
 /** name -> file in public/models */
 export const MODEL_FILES = {
-  player: "player.glb",
+  player_corporate: "player_corporate.glb",
+  player_engineer: "player_engineer.glb",
   gun: "gun.glb",
 };
 

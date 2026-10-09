@@ -24,6 +24,7 @@ import { RemoteShots } from "./fx/remoteShots.js";
 import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
+import { preloadModels } from "./assets/models.js";
 import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl, rejoinKey } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
@@ -42,6 +43,10 @@ applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<
 }
 
 let game = null; // the running map, if any
+// the Blender models (characters, gun) start downloading right away; a map waits for them, but
+// never longer than a few seconds (a missing model just means the built-in fallback)
+const modelsReady = preloadModels();
+const waitForModels = () => Promise.race([modelsReady, new Promise((r) => setTimeout(r, 8000))]);
 const sfx = new Sfx(); // one audio context for the whole page
 
 /** typing in a text field must not trigger game keys */
@@ -119,6 +124,7 @@ joinScreen.onJoin = async (name) => {
     $("loading-text").textContent = "Tracing every glyph of the CV…";
     await nextFrame();
     const pdf = await loadPdfBytes(res.pdfBytes, { rasterScale: config.rasterScale });
+    await waitForModels();
     if (room.closed) return;
     $("loading-text").textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
     await nextFrame();
@@ -147,6 +153,7 @@ async function start(file) {
     if (!pdf.pieces.length) {
       return fail("No vector text found. Is this a scanned PDF? Scanned pages aren't supported yet.");
     }
+    await waitForModels();
     status.textContent = `Extruding ${pdf.pieces.length.toLocaleString()} letters…`;
     await nextFrame();
     startGame(pdf, { fileName: file.name });

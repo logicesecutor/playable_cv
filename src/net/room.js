@@ -28,11 +28,23 @@ import { PeerLink, signalCid } from "./peerLink.js";
 import { ClockSync } from "./clock.js";
 import { resolveIce, routeOf } from "./ice.js";
 
-export const NET_VERSION = 4; // bump when the message format changes: old tabs get a clear error
+export const NET_VERSION = 5; // bump when the message format changes: old tabs get a clear error
 
 export const PLAYER_COLORS = ["#ff5a36", "#3fa7ff", "#3ddc84", "#ffc53d", "#c77dff", "#ff6fb5", "#40e0d0", "#e8e8f0"];
 
-/** @typedef {{id:number, name:string, color:string, host:boolean, state:"loading"|"in-game"|"away", ping?:number, route?:"direct"|"relay"|"unknown"}} PlayerInfo */
+/** character outfits (public/models/player_<outfit>.glb); the host hands them out */
+export const OUTFITS = ["corporate", "engineer"];
+
+/** balanced random: the outfit fewest players wear, a random one of those on a tie */
+export function pickOutfit(players, rand = Math.random) {
+  const count = new Map(OUTFITS.map((o) => [o, 0]));
+  for (const p of players) if (count.has(p.outfit)) count.set(p.outfit, count.get(p.outfit) + 1);
+  const least = Math.min(...count.values());
+  const pool = OUTFITS.filter((o) => count.get(o) === least);
+  return pool[Math.floor(rand() * pool.length)];
+}
+
+/** @typedef {{id:number, name:string, color:string, outfit:string, host:boolean, state:"loading"|"in-game"|"away", ping?:number, route?:"direct"|"relay"|"unknown"}} PlayerInfo */
 
 const AWAY_MS = 60000; // a dropped guest keeps its place (and score) this long
 const SILENCE_MS = 10000; // a link with no traffic for this long is dead
@@ -95,7 +107,7 @@ export class HostRoom extends BaseRoom {
     this.map = o.map;
     this.isHost = true;
     this.selfId = 0;
-    this.players = [{ id: 0, name: o.name, color: PLAYER_COLORS[0], host: true, state: "in-game" }];
+    this.players = [{ id: 0, name: o.name, color: PLAYER_COLORS[0], outfit: pickOutfit([]), host: true, state: "in-game" }];
     this.nextId = 1;
     /** @type {Map<string, {link:PeerLink, player:PlayerInfo|null}>} remote signaling id -> guest */
     this.guests = new Map();
@@ -325,6 +337,7 @@ export class HostRoom extends BaseRoom {
         id: this.nextId++,
         name: cleanName(msg.name) || `Player ${this.nextId - 1}`,
         color: PLAYER_COLORS.find((c) => !used.has(c)) || PLAYER_COLORS[0],
+        outfit: pickOutfit(this.players), // kept on rejoin and rematch (same player entry)
         host: false,
         state: "loading",
       };

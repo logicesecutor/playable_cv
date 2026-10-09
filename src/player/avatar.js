@@ -1,5 +1,6 @@
-// Third-person body for other players: a low-poly soldier in the player's colour, holding the
-// same gun as the first-person view-model. Animated from network state only (position, aim,
+// Third-person body for other players. createAvatar() gives the Blender character
+// (modelAvatar.js) when its model is loaded, otherwise this file's fallback: a low-poly box
+// soldier in the player's colour, holding the same gun as the first-person view-model. Animated from network state only (position, aim,
 // velocity, crouch / grounded flags): walk + run cycle, crouch, jump pose, aim pitch.
 //
 // Proportions match the first-person player: eyes at 1.65 m standing and ~0.95 m crouched, body
@@ -7,12 +8,31 @@
 import * as THREE from "three";
 import { buildGun } from "./weapon.js";
 import { FLAG } from "../net/snapshots.js";
+import { getModel } from "../assets/models.js";
+import { ModelAvatar } from "./modelAvatar.js";
+
+/**
+ * The body for a remote player: the Blender character in its outfit, or the box soldier if that
+ * model isn't available (not exported yet, failed to load).
+ * @param {string} color player colour
+ * @param {string} [outfit] "corporate" | "engineer" (room.js OUTFITS)
+ */
+export function createAvatar(color, outfit = "corporate") {
+  if (getModel(`player_${outfit}`)) {
+    try {
+      return new ModelAvatar(color, outfit);
+    } catch (err) {
+      console.warn("[avatar] model avatar failed, using the box soldier", err);
+    }
+  }
+  return new BoxAvatar(color);
+}
 
 const THIGH = 0.44;
 const SHIN = 0.48; // incl. boot
 const HIP = 0.9; // standing hip height
 
-export class Avatar {
+export class BoxAvatar {
   /** @param {string} color css colour of the player */
   constructor(color) {
     const main = new THREE.Color(color);
