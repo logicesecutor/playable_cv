@@ -1,6 +1,7 @@
-// Other players' shots: tracer, muzzle flash, positional gunshot, and what the bullet did at the
-// far end (floor scorch, a puff on a player). Letter hits are not drawn here: they arrive from
-// the host as shared destruction (MP3).
+// Other players' shots: tracer, muzzle flash, positional gunshot, the flying word slip (via
+// `words`, fx/wordShots.js, picked from shooter id + shot seq so it matches what they saw), and
+// what the bullet did at the far end (floor scorch, a puff on a player). Letter hits are not
+// drawn here: they arrive from the host as shared destruction (MP3).
 import * as THREE from "three";
 import { pickWord } from "./wordShots.js";
 

@@ -6,8 +6,11 @@
 //   The word is picked from (shooter id, shot sequence number), which every client already has,
 //   so everyone sees the same word for the same shot.
 // - A letter destroyed: a red rubber stamp REJECTED pops up over it, slams down and stays printed
-//   on the paper (so it shows on the floor and the minimap; a rematch clears it with the burns).
-// - A player killed: a big red FIRED! stamp pops up over them and floats away.
+//   on the paper (so it shows on the floor and the minimap; at most one printed stamp per ~7 m,
+//   STAMP_GAP; a rematch clears them: destruction.resetAll() restores the paper, then reset()).
+// - A player killed: a big red FIRED! stamp pops up over them (seen through walls) and floats away.
+// Wiring (main.js): weapon.onTracer -> ownShot(), remoteShots.words -> shot(),
+// destruction.onDestroyed -> rejected(), pvp onDied -> fired(), update(dt) every frame.
 import * as THREE from "three";
 
 /** every shot */

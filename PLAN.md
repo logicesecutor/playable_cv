@@ -139,8 +139,12 @@ Each milestone ends with something runnable.
       on an AnimationMixer state machine with a procedural layer (aim, head, hands, reload, death);
       `FLAG.reload` lets others see a reload. `test:ray`, `test:interp`, `sim:pvp`, `sim:match` and the
       build still pass. Details in the README ("Characters and the gun").
-- [ ] **Word shots (next).** The typewriter fires words instead of tracers: flying "REJECTED" /
-      "FIRED!" words from the paper slot (`muzzle` in `gunModel.js`).
+- [x] **Word shots (P4).** Every shot (ours and remote) flies a typed rejection slip (`WORDS` /
+      `RARE_WORDS` 1 in 8, `src/fx/wordShots.js`) at 120 m/s, same word everywhere via deterministic
+      `pickWord(shooterId, seq)` (no new network data); REJECTED stamp over destroyed letters, printed
+      on the paper (≤ 1 per ~7 m, cleared on rematch); FIRED! over kills. Purely visual. Single player +
+      headless two-page duel, `sim:pvp`, `sim:match`, `test:ray` and the build pass. Details in the
+      README ("Word shots").
 
 ## Multiplayer architecture
 

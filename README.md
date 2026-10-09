@@ -45,7 +45,7 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 - http://localhost:5173/viewer.html is the model viewer (dev only, see "Characters and the gun").
 - `npm run build` writes the static site to `dist/` (`BASE_PATH=/<repo>/` when it is served from a
@@ -251,6 +251,30 @@ toon ramp (`config.characters.toon`, off). For one page load: `?toon=1`, `?rim=0
 If a model file is missing or fails to load, the game keeps working with the old procedural box
 soldier and box gun. A map waits at most 8 s for the models.
 
+### Word shots
+
+The typewriter blaster prints rejections (`src/fx/wordShots.js`). It is purely visual: hits are
+still instant hitscan, and balance and netcode are unchanged.
+
+- **Every shot** (yours and other players') flies a small typed paper slip along the shot line at
+  120 m/s. The slip grows with the distance so the word stays readable, sticks at the impact for a
+  moment, then flutters down and fades. Most shots print a common word (NO, NOPE, NEXT, NAH, PASS,
+  DENIED, LATER, OOF); 1 in 8 prints a rare one (UNFORTUNATELY…, NOT A FIT, GHOSTED, OVERQUALIFIED,
+  POSITION FILLED, WE'LL BE IN TOUCH).
+- **Same word on every screen**: `pickWord(shooterId, seq)` is deterministic and shots already carry
+  a sequence number, so nothing new is sent over the network.
+- **REJECTED**: a red rubber stamp pops over every destroyed letter (yours or someone else's), slams
+  down and is printed on the paper like the burns, so it shows on the floor and the minimap. At most
+  one printed stamp per ~7 m (`STAMP_GAP`). A rematch clears them.
+- **FIRED!**: a red stamp pops over a killed player (visible through walls) and floats away.
+
+To change the words, edit `WORDS` (every shot) and `RARE_WORDS` (1 in 8) at the top of
+`src/fx/wordShots.js`. Wiring, all in `src/main.js`: `weapon.onTracer` (called after `onFired`, so
+your word uses the shot sequence number sync just assigned), `remoteShots.words` (with the shooter
+id passed to `RemoteShots.play(shot, listener, shooterId)`), `destruction.onDestroyed` →
+`words.rejected(e)`, the pvp option `onDied(victim, killer)` → `words.fired()`, and `words.reset()`
+on rematch. In the console: `__cv.words`.
+
 ### Model viewer
 
 `npm run dev`, then open http://localhost:5173/viewer.html. It shows both outfits exactly as the game
@@ -357,7 +381,7 @@ src/
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag
   player/weapon.js      view-model (typewriter via gunModel.js: restPos, roll-over + cartridge drop on reload,
                         setAccent), firing, spread, recoil, reload, tracers, muzzle flash; buildGun() (box gun);
-                        hooks for player hits (playerRay / onPlayerHit / onFired / blocked)
+                        hooks for player hits (playerRay / onPlayerHit / onFired / blocked), onTracer (word shots)
   player/avatar.js      createAvatar(color, outfit): the Blender character, or the fallback BoxAvatar (low-poly
                         soldier in the player's colour, walk/run, crouch, jump, aim; die / revive)
   player/modelAvatar.js ModelAvatar: chibi job hunter, AnimationMixer state machine over the Blender clips
@@ -372,7 +396,10 @@ src/
                         resetAll (rematch) from a clean raster copy (`pdf.rasterClean`)
   fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters; clear()
   fx/particles.js       sparks and dust (soft points, one draw call each)
-  fx/remoteShots.js     other players' shots: tracer, muzzle flash, positional gunshot, floor scorch, player puff
+  fx/remoteShots.js     other players' shots: tracer, muzzle flash, positional gunshot, floor scorch, player puff,
+                        their word slip (pickWord from shooter id + shot seq)
+  fx/wordShots.js       word shots: typed rejection slips on every shot (WORDS / RARE_WORDS, pickWord),
+                        REJECTED stamp over destroyed letters (printed on the paper), FIRED! over kills; reset()
   audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
                         steps (own + other players'), reload, body hit, hurt
   ui/hud.js             crosshair hit markers (letter, player, headshot, kill), ammo, CV integrity, toasts
