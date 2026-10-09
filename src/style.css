@@ -476,3 +476,73 @@ html.touch #game-screen {
 #t-mute .t-x { display: none; }
 #t-mute.off .t-x { display: inline; }
 #t-mute.off .t-wave { display: none; }
+
+/* ---------- mobile layout (touch mode) ---------- */
+html:not(.touch) .touch-only, html.touch .desk-only { display: none !important; }
+
+/* landscape only: in portrait the game screen shows a "turn your phone" card */
+#rotate { display: none; }
+@media (orientation: portrait) {
+  html.touch #rotate {
+    position: absolute; inset: 0; z-index: 10;
+    display: grid; place-content: center; justify-items: center; gap: 4px; padding: 24px;
+    background: var(--bg); text-align: center;
+  }
+  html.touch #rotate svg {
+    width: 72px; height: 72px; margin-bottom: 12px;
+    fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    animation: rotate-hint 2.4s ease-in-out infinite;
+  }
+  html.touch #rotate p { margin: 0; font-size: 20px; font-weight: 750; }
+  html.touch #rotate p.sub { font: 13px var(--mono); color: var(--muted); }
+}
+@keyframes rotate-hint { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+/* HUD: clear the thumbs; everything inside the notch / rounded-corner safe area */
+html.touch #left-col { left: calc(var(--sl) + 12px); top: calc(var(--st) + 60px); gap: 8px; }
+html.touch #integrity { padding: 6px 10px; }
+html.touch #integrity-value { font-size: 17px; }
+html.touch #integrity-count { display: none; }
+html.touch #players { font-size: 11px; line-height: 1.6; padding: 6px 10px; min-width: 0; }
+html.touch #right-col { top: calc(var(--st) + 10px); right: calc(var(--sr) + 12px); width: 116px; gap: 6px; }
+html.touch #minimap { width: 116px; }
+html.touch #feed li { font-size: 11px; padding: 3px 8px; }
+html.touch #ammo {
+  top: calc(var(--st) + 10px); bottom: auto; right: calc(var(--sr) + 140px);
+  padding: 5px 10px;
+}
+html.touch #ammo-count { font-size: 22px; }
+html.touch .hint {
+  left: 50%; bottom: auto; top: calc(var(--st) + 52px); transform: translateX(-50%);
+  max-width: min(70vw, 460px); text-align: center;
+}
+html.touch #health { bottom: calc(var(--sb) + 10px); }
+html.touch .hp-row { padding: 6px 10px; gap: 8px; }
+html.touch .hp-bar { width: 110px; }
+html.touch #hp-value { font-size: 16px; }
+html.touch #match-bar { top: calc(var(--st) + 12px); }
+html.touch #killcam { top: 18%; }
+html.touch .kc-title { font-size: 22px; }
+
+/* pause card and end card fit a ~390 px tall landscape phone */
+html.touch #pause { overflow-y: auto; padding: calc(var(--st) + 10px) calc(var(--sr) + 10px) calc(var(--sb) + 10px) calc(var(--sl) + 10px); }
+html.touch .pause-card { padding: 16px 20px; margin: auto; max-width: min(560px, 100%); }
+html.touch .pause-title { font-size: 22px; margin-bottom: 12px; }
+html.touch .keys { font-size: 13px; gap: 6px 14px; }
+html.touch .invite { margin-bottom: 12px; padding-bottom: 12px; }
+#endcard { overflow-y: auto; }
+.ec-panel { margin: auto; }
+html.touch .ec-panel { padding: 16px 18px; gap: 10px; }
+html.touch #ec-title { font-size: 28px; }
+html.touch input:not([type]), html.touch input[type="text"] { font-size: 16px; } /* iOS zooms into smaller fields */
+
+/* short screens (phone in landscape): the start pages scroll and get more compact */
+#upload-screen, #join-screen { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+@media (max-height: 520px) {
+  #upload-screen, #join-screen { place-items: start center; padding: calc(var(--st) + 14px) 16px calc(var(--sb) + 14px); }
+  .upload-card .game-title { font-size: 34px; margin-bottom: 10px; }
+  .lede { font-size: 15px; margin-bottom: 14px; }
+  .dropzone { padding: 18px 16px; }
+  .drop-icon { width: 30px; height: 30px; margin-bottom: 0; }
+  .fineprint { margin-top: 10px; }
+}

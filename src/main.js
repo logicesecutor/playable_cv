@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { config } from "./config.js";
 import { touchMode } from "./input/touchMode.js";
+import { enterLandscapeFullscreen, onFullscreenChange } from "./input/fullscreen.js";
 import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
@@ -220,7 +221,7 @@ function startGame(pdf, online = {}) {
   const destruction = new Destruction({ world, collision, debris, sparks, dust, sfx, pdf, cfg: config });
   const weapon = new Weapon({ camera, scene, player, collision, destruction, sfx, cfg: config });
   const minimap = new Minimap($("minimap"), pdf.raster, world.size);
-  const hud = new Hud(config);
+  const hud = new Hud(config, { touch: touchMode });
   // phones / tablets: on-screen controls, shown while the player is in control (after Play)
   const touch = touchMode
     ? new TouchControls({ player, weapon, cfg: config, onBoard: (open) => pvp?.showBoard(open), onMute: () => sfx.toggleMute() })
@@ -284,9 +285,23 @@ function startGame(pdf, online = {}) {
   document.addEventListener("keydown", skip);
   const onPauseClick = () => {
     sfx.unlock(); // audio may only start from a click
+    if (touchMode) enterLandscapeFullscreen(); // phones: fullscreen + landscape where allowed
     player.lock();
   };
   pause.addEventListener("click", onPauseClick);
+
+  // touch devices pause by themselves when the game can't be played: the phone turned to
+  // portrait, the app went to the background, or the player left fullscreen (Android back)
+  const portrait = matchMedia("(orientation: portrait)");
+  const onPortrait = () => touchMode && portrait.matches && player.unlock();
+  portrait.addEventListener("change", onPortrait);
+  const onHidden = () => touchMode && document.hidden && player.unlock();
+  document.addEventListener("visibilitychange", onHidden);
+  let wasFullscreen = false;
+  const offFullscreen = onFullscreenChange((full) => {
+    if (touchMode && wasFullscreen && !full) player.unlock();
+    wasFullscreen = full;
+  });
 
   const setPlaying = (on) => {
     player.enabled = on;
@@ -582,6 +597,9 @@ function startGame(pdf, online = {}) {
       document.removeEventListener("keydown", onKey);
       pause.removeEventListener("click", onPauseClick);
       touch?.dispose();
+      portrait.removeEventListener("change", onPortrait);
+      document.removeEventListener("visibilitychange", onHidden);
+      offFullscreen();
       player.dispose();
       weapon.dispose();
       renderer.dispose();
