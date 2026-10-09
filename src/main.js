@@ -26,13 +26,16 @@ import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
 import { preloadModels } from "./assets/models.js";
+import { initTitles, playTitles } from "./ui/title.js";
 import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl, rejoinKey } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
 const screens = { upload: $("upload-screen"), join: $("join-screen"), loading: $("loading-screen"), game: $("game-screen") };
 function show(name) {
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
+  playTitles(screens[name]); // "Destroy Your" types out, CAREER is stamped (once per screen)
 }
+initTitles();
 
 config.net.broker = brokerFromUrl(config.net.broker);
 config.net.netsim = netsimFromUrl(); // developer tool: ?netsim=lag:80,jitter:30,loss:0.05

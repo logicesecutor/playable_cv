@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Playable CV</title>
+    <title>Destroy Your Career</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <!-- Step 1: pick a PDF -->
     <section id="upload-screen" class="screen">
       <div class="upload-card">
-        <p class="tag">prototype · v0.1</p>
-        <h1>Playable&nbsp;CV</h1>
-        <p class="lede">Drop a PDF résumé. Every letter becomes a wall you can take cover behind, and shoot down.</p>
+        <p class="tag" data-version>prototype · {version}</p>
+        <h1 class="game-title" data-animate>Destroy Your Career</h1>
+        <p class="lede">Your CV. Their bullets. No callbacks.</p>
 
         <label id="dropzone" class="dropzone" for="file-input">
           <svg viewBox="0 0 24 24" aria-hidden="true" class="drop-icon">
@@ -33,7 +33,8 @@
     <section id="join-screen" class="screen" hidden>
       <div class="upload-card">
         <p class="tag">multiplayer · invite</p>
-        <h1>Join the&nbsp;CV</h1>
+        <h1 class="game-title" data-animate>Destroy Your Career</h1>
+        <h2 class="subhead">Join the game</h2>
         <p class="lede">A friend turned their résumé into a map and wants to fight you in it.</p>
 
         <form id="join-form" class="join-form" autocomplete="off">
@@ -56,6 +57,7 @@
     <!-- Step 1.5: working -->
     <section id="loading-screen" class="screen" hidden>
       <div class="loader">
+        <div class="game-title small">Destroy Your Career</div>
         <div class="bar"><span></span></div>
         <p id="loading-text">Reading PDF…</p>
       </div>
@@ -136,6 +138,7 @@
         </div>
         <div id="endcard" hidden>
           <div class="ec-panel">
+            <div class="game-title small">Destroy Your Career</div>
             <p class="ec-kicker">Match over</p>
             <h2 id="ec-title"></h2>
             <p id="ec-sub"></p>
