@@ -100,6 +100,35 @@
           </div>
           <ul id="players" hidden></ul>
         </div>
+        <!-- touch controls (phones / tablets only: ui/touchControls.js) -->
+        <div id="touch" hidden>
+          <div id="t-move" class="t-zone"></div>
+          <div id="t-look" class="t-zone"></div>
+          <div id="t-stick" aria-hidden="true"><span id="t-knob"></span></div>
+          <button id="t-fire" class="t-btn" type="button" aria-label="Fire (drag to aim)">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" /><path d="M12 2v5M12 17v5M2 12h5M17 12h5" /></svg>
+          </button>
+          <button id="t-jump" class="t-btn" type="button" aria-label="Jump">
+            <svg viewBox="0 0 24 24"><path d="M6 14l6-6 6 6" /><path d="M6 19h12" /></svg>
+          </button>
+          <button id="t-crouch" class="t-btn" type="button" aria-label="Crouch (hold)">
+            <svg viewBox="0 0 24 24"><path d="M6 10l6 6 6-6" /><path d="M6 5h12" /></svg>
+          </button>
+          <button id="t-reload" class="t-btn" type="button" aria-label="Reload">
+            <svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" /><path d="M19.5 3.5v5h-5" /></svg>
+          </button>
+          <div id="t-top">
+            <button id="t-pause" class="t-btn t-small" type="button" aria-label="Pause">
+              <svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" /></svg>
+            </button>
+            <button id="t-board" class="t-btn t-small" type="button" aria-label="Scoreboard (hold)" hidden>
+              <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14" /></svg>
+            </button>
+            <button id="t-mute" class="t-btn t-small" type="button" aria-label="Mute">
+              <svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5z" /><path class="t-wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /><path class="t-x" d="M16 9.5l5 5M21 9.5l-5 5" /></svg>
+            </button>
+          </div>
+        </div>
         <div id="ammo" hidden>
           <span id="ammo-count">30</span><span class="sub">/ <span id="ammo-max">30</span></span>
           <span id="ammo-status" class="sub"></span>

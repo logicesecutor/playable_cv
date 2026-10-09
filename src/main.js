@@ -13,6 +13,7 @@ import { Debris } from "./fx/debris.js";
 import { ParticleSystem } from "./fx/particles.js";
 import { Sfx } from "./audio/sfx.js";
 import { Hud } from "./ui/hud.js";
+import { TouchControls } from "./ui/touchControls.js";
 import { HostRoom, GuestRoom } from "./net/room.js";
 import { brokerFromUrl } from "./net/signaling.js";
 import { netsimFromUrl } from "./net/netsim.js";
@@ -220,6 +221,11 @@ function startGame(pdf, online = {}) {
   const weapon = new Weapon({ camera, scene, player, collision, destruction, sfx, cfg: config });
   const minimap = new Minimap($("minimap"), pdf.raster, world.size);
   const hud = new Hud(config);
+  // phones / tablets: on-screen controls, shown while the player is in control (after Play)
+  const touch = touchMode
+    ? new TouchControls({ player, weapon, cfg: config, onBoard: (open) => pvp?.showBoard(open), onMute: () => sfx.toggleMute() })
+    : null;
+  touch?.setMuted(sfx.muted);
 
   show("game");
   let intro = null;
@@ -285,6 +291,7 @@ function startGame(pdf, online = {}) {
   const setPlaying = (on) => {
     player.enabled = on;
     hud.setIntro(!on);
+    if (!on) touch?.setVisible(false);
     pause.hidden = !on || player.active;
     if (on) {
       hud.ammo(weapon);
@@ -301,12 +308,17 @@ function startGame(pdf, online = {}) {
       player.unlock(); // after the reset: the pause card stays hidden during the intro
       scene.fog = null;
     }
-    if (e.code === "KeyM") hud.toast(sfx.toggleMute() ? "Sound off" : "Sound on");
+    if (e.code === "KeyM") {
+      const muted = sfx.toggleMute();
+      touch?.setMuted(muted);
+      hud.toast(muted ? "Sound off" : "Sound on");
+    }
   };
   document.addEventListener("keydown", onKey);
 
   player.onLockChanged = (active) => {
     if (intro.done) pause.hidden = active;
+    touch?.setVisible(active && intro.done);
     if (active) document.activeElement?.blur?.(); // don't type WASD into the name field
     else weapon.releaseTriggers();
   };
@@ -363,6 +375,7 @@ function startGame(pdf, online = {}) {
     destruction.onLocalHit = (e, h, dir) => letters?.localHit(e, h, dir);
     letters.onStats = (kills) => playersPanel.render(r.players, r.selfId, kills);
 
+    touch?.setMultiplayer(true); // hold-to-show scoreboard button
     pvp = createPvp({
       room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
       target: config.net.killTarget,
@@ -568,6 +581,7 @@ function startGame(pdf, online = {}) {
       document.removeEventListener("keydown", skip);
       document.removeEventListener("keydown", onKey);
       pause.removeEventListener("click", onPauseClick);
+      touch?.dispose();
       player.dispose();
       weapon.dispose();
       renderer.dispose();

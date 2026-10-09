@@ -224,7 +224,7 @@ export function createPvp(o) {
     sync.onFired = (id) => combat.firedBy(id);
   }
 
-  // ---------------------------------------------------------------- scoreboard (hold Tab)
+  // ---------------------------------------------------------------- scoreboard (hold Tab, or the touch button)
   let boardOpen = false;
   const rows = () =>
     room.players.map((p) => {
@@ -240,11 +240,14 @@ export function createPvp(o) {
         alive: c?.alive ?? true,
       };
     }).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+  const showBoard = (open) => {
+    boardOpen = open;
+    chud.scoreboard(boardOpen ? rows() : null, self());
+  };
   const onKey = (e) => {
     if (e.code !== "Tab") return;
     e.preventDefault();
-    boardOpen = e.type === "keydown";
-    chud.scoreboard(boardOpen ? rows() : null, self());
+    showBoard(e.type === "keydown");
   };
   document.addEventListener("keydown", onKey);
   document.addEventListener("keyup", onKey);
@@ -265,6 +268,9 @@ export function createPvp(o) {
     snapshot() {
       return { combat: combat.snapshot(), match: match.snapshot() };
     },
+
+    /** open / close the scoreboard (the touch controls' hold button; Tab does the same) */
+    showBoard,
 
     /** the room's player list changed */
     setPlayers(list) {

@@ -16,6 +16,16 @@ export const config = {
   mouseSensitivity: 0.0022,
   keyLookSpeed: 2.4, // rad/s when aiming with the arrow keys
 
+  // ---- touch controls (phones / tablets, ui/touchControls.js)
+  touch: {
+    lookSensitivity: 0.0062, // rad per CSS pixel of drag (look area and fire button)
+    pitchFactor: 0.85, // vertical drag a bit slower than horizontal
+    stickRadius: 56, // px: how far the knob travels
+    stickDeadzone: 0.12, // fraction of the radius that does nothing
+    minThrottle: 0.3, // speed just past the deadzone (fraction of walk speed)
+    sprintAt: 0.95, // stick pushed this far, roughly forward, sprints
+  },
+
   // ---- player (metres, seconds)
   player: {
     radius: 0.35,
