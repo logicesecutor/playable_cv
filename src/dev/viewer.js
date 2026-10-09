@@ -81,7 +81,6 @@ function placeBodies() {
     lines.push(`${outfit}: ${ok ? stats(avatar.inst.model) : "model not available (box fallback)"}`);
     const b = { avatar, x: i * SPACING, label: outfit };
     if (ok) {
-      b.mixer = new THREE.AnimationMixer(avatar.inst.model);
       b.skeleton = new THREE.SkeletonHelper(avatar.inst.model);
       b.skeleton.visible = $("skeleton").checked;
       scene.add(b.skeleton);
@@ -133,32 +132,38 @@ for (const name of Object.keys(POSES)) {
   $("poses").appendChild(b);
 }
 
-// ---- clips (Phase 3): played on top of the procedural pose
+// ---- clips: force a body clip (overrides the pose buttons), fire / reload the gun clips
 let activeClip = null;
+let reloadUntil = 0;
+const models = () => bodies.filter((b) => b.avatar.clips);
 function buildClipButtons() {
   const box = $("clips");
   box.innerHTML = "";
-  const clips = bodies.find((b) => b.mixer)?.avatar.inst.animations || [];
-  if (!clips.length) {
-    box.innerHTML = '<span class="muted">none yet</span>';
+  const first = models()[0];
+  if (!first) {
+    box.innerHTML = '<span class="muted">none</span>';
     return;
   }
-  for (const clip of clips) {
+  const add = (label, fn) => {
     const btn = document.createElement("button");
-    btn.textContent = clip.name;
-    btn.onclick = () => {
-      const on = activeClip !== clip.name;
-      for (const x of box.children) x.classList.remove("on");
-      for (const b of bodies) {
-        if (!b.mixer) continue;
-        b.mixer.stopAllAction();
-        if (on) b.mixer.clipAction(b.avatar.inst.animations.find((c) => c.name === clip.name)).play();
-      }
-      activeClip = on ? clip.name : null;
-      if (on) btn.classList.add("on");
-    };
+    btn.textContent = label;
+    btn.onclick = () => fn(btn);
     box.appendChild(btn);
+  };
+  for (const name of Object.keys(first.avatar.clips)) {
+    if (name === "Fire" || name === "Reload" || name === "Death") continue;
+    add(name, (btn) => {
+      const on = activeClip !== name;
+      for (const x of box.children) x.classList.remove("on");
+      for (const b of models()) b.avatar.forced = on ? name : null;
+      activeClip = on ? name : null;
+      if (on) btn.classList.add("on");
+    });
   }
+  add("fire ×5", () => {
+    for (let i = 0; i < 5; i++) setTimeout(() => models().forEach((b) => b.avatar.fire()), i * 95);
+  });
+  add("reload", () => (reloadUntil = performance.now() + 1300));
 }
 
 function applyWireframe() {
@@ -202,8 +207,7 @@ preloadModels().then(placeBodies);
 const clock = new THREE.Clock();
 const _v = new THREE.Vector3();
 let measureT = 0;
-function frame() {
-  const dt = Math.min(0.05, clock.getDelta());
+function tick(dt) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
@@ -216,8 +220,8 @@ function frame() {
   hitboxes.clear();
   const lines = [];
   for (const b of bodies) {
-    b.avatar.update(dt, { x: b.x, y: 0, z: 0, yaw: 0, pitch, vx: 0, vz: -p.speed, f: p.f });
-    b.mixer?.update(dt);
+    const f = p.f | (performance.now() < reloadUntil ? FLAG.reload : 0);
+    b.avatar.update(dt, { x: b.x, y: 0, z: 0, yaw: 0, pitch, vx: 0, vz: -p.speed, f });
     if (b.avatar.dead) continue;
     // hitboxes follow the smoothed crouch, like the game's
     const hb = hitboxOf(b.x, 0, 0, b.avatar.crouch);
@@ -238,9 +242,17 @@ function frame() {
     measureT = 0.25;
   }
   renderer.render(scene, camera);
+}
+function frame() {
+  tick(Math.min(0.05, clock.getDelta()));
   requestAnimationFrame(frame);
 }
 frame();
+/** advance time by hand (a hidden tab gets no animation frames): step(1.2) then look */
+window.step = (seconds, dt = 1 / 60) => {
+  for (let t = 0; t < seconds; t += dt) tick(dt);
+};
 
 // for poking around from the console
-Object.assign(window, { THREE, scene, camera, getModel, get bodies() { return bodies; }, setPose });
+Object.assign(window, { THREE, scene, camera, getModel, setPose });
+Object.defineProperty(window, "bodies", { get: () => bodies });

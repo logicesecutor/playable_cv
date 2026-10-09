@@ -268,13 +268,15 @@ export class Weapon {
 
     g.position.set(
       this.restPos.x + Math.cos(ph * 0.5) * 0.014 * bobAmt + this.swayX * 0.4,
-      this.restPos.y - Math.abs(Math.sin(ph)) * 0.014 * bobAmt + this.swayY * 0.4 - rl * 0.16 - (sprinting ? 0.04 : 0) + (pl.landDip || 0) * 0.3,
+      this.restPos.y - Math.abs(Math.sin(ph)) * 0.014 * bobAmt + this.swayY * 0.4 - rl * (this.gun.model ? 0.06 : 0.16) - (sprinting ? 0.04 : 0) + (pl.landDip || 0) * 0.3,
       this.restPos.z + this.recoil * 0.055,
     );
+    // the typewriter rolls over to show its cartridge; the box gun dips and tilts
+    const roll = this.gun.model ? 1.05 : 0.35, dip = this.gun.model ? 0.25 : 0.7;
     g.rotation.set(
-      this.recoil * 0.09 - rl * 0.7 + this.swayY - (sprinting ? 0.15 : 0),
+      this.recoil * 0.09 - rl * dip + this.swayY - (sprinting ? 0.15 : 0),
       this.swayX + (sprinting ? 0.35 : 0),
-      -rl * 0.35 + this.swayX * 0.6,
+      -rl * roll + this.swayX * 0.6,
     );
 
     // reload: the ink-ribbon cartridge drops out, the left hand follows it down and slaps a new
@@ -320,7 +322,7 @@ export class Weapon {
 
 // ------------------------------------------------------------------------------------------------
 
-const smooth = (t) => t * t * (3 - 2 * t);
+const smooth = (t) => ((t = Math.min(1, Math.max(0, t))), t * t * (3 - 2 * t));
 
 /** the old procedural box gun (fallback when gun.glb isn't available, and the box soldier's gun) */
 export function buildGun() {

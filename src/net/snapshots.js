@@ -13,7 +13,7 @@
 
 /** @typedef {{t:number, k:number, x:number, y:number, z:number, yaw:number, pitch:number, vx:number, vy:number, vz:number, f:number}} Snapshot */
 
-export const FLAG = { crouch: 1, grounded: 2, sprint: 4, fly: 8 };
+export const FLAG = { crouch: 1, grounded: 2, sprint: 4, fly: 8, reload: 16 };
 
 export class SnapshotBuffer {
   /**

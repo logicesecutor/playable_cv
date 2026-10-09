@@ -70,6 +70,8 @@ export class NetSync {
     // hooks for the game (MP4)
     /** @type {(id:number, shot:number[]) => void} play someone's shot (tracer, sound, impact) */
     this.onRemoteShot = null;
+    /** are we reloading? (main.js wires it to the weapon; sent as FLAG.reload) */
+    this.isReloading = () => false;
     /** @type {(id:number, snap:any) => void} a state arrived (host: rewind history) */
     this.onState = null;
     /** @type {(id:number) => void} host: this player fired (ends spawn protection) */
@@ -177,7 +179,8 @@ export class NetSync {
       this.sendT = Math.max(0, this.sendT + SEND_INTERVAL);
       const c = this.player.core;
       const sprint = Math.hypot(c.vx, c.vz) > this.cfg.player.walkSpeed + 0.5;
-      const flags = (c.crouching ? FLAG.crouch : 0) | (c.grounded ? FLAG.grounded : 0) | (sprint ? FLAG.sprint : 0) | (c.fly ? FLAG.fly : 0);
+      const flags = (c.crouching ? FLAG.crouch : 0) | (c.grounded ? FLAG.grounded : 0) | (sprint ? FLAG.sprint : 0) | (c.fly ? FLAG.fly : 0) |
+        (this.isReloading() ? FLAG.reload : 0);
       const msg = encodeState(this.room.selfId, this.k++, now, c, flags, this.outShots.map((o) => o.s));
       for (const o of this.outShots) o.sends++;
       this.outShots = this.outShots.filter((o) => o.sends < 2);
@@ -203,6 +206,7 @@ export class NetSync {
       while (r.shots.length && (r.shots[0].t <= playUntil || r.shots[0].t < now - 1000)) {
         const { s: shot } = r.shots.shift();
         r.revealUntil = now + 1500;
+        r.avatar.fire?.(); // gun kick
         this.onRemoteShot?.(r.id, shot);
       }
 
