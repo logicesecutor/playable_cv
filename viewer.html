@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playable CV · model viewer</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #16171c; color: #e8e6e1; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #panel { position: fixed; top: 12px; left: 12px; width: 230px; padding: 12px; background: rgba(20, 21, 26, 0.88);
+        border: 1px solid #2c2e36; border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+      #panel h1 { font-size: 14px; margin: 0; }
+      #panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+      #panel .row { display: flex; flex-wrap: wrap; gap: 4px; }
+      #panel button { background: #2a2c34; color: inherit; border: 1px solid #3a3d47; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+      #panel button.on { background: #4d8dff; border-color: #4d8dff; color: #fff; }
+      #status { color: #9a9890; white-space: pre-line; }
+      .muted { color: #8a8880; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="panel">
+      <h1>Model viewer</h1>
+      <div id="status">loading…</div>
+      <label><input type="checkbox" id="hitbox" checked /> hitboxes</label>
+      <label><input type="checkbox" id="old" checked /> old box soldier</label>
+      <label><input type="checkbox" id="skeleton" /> skeleton</label>
+      <label><input type="checkbox" id="wire" /> wireframe</label>
+      <label><input type="checkbox" id="crouch" /> crouched hitbox</label>
+      <label>accent <input type="color" id="accent" value="#4d8dff" /></label>
+      <div class="muted">clips</div>
+      <div class="row" id="clips"></div>
+      <button id="reload">reload models (R)</button>
+      <div class="muted">drag: orbit · right-drag: pan · wheel: zoom</div>
+    </div>
+    <script type="module" src="/src/dev/viewer.js"></script>
+  </body>
+</html>
