@@ -102,7 +102,7 @@ export function createPvp(o) {
           deadInfo = { killer: by, head, at: now() };
           player.dead = true;
           weapon.blocked = true;
-          weapon.mouseTrigger = weapon.keyTrigger = false;
+          weapon.releaseTriggers();
           chud.setHp(0);
           camPos.copy(camera.position);
           document.getElementById("crosshair").style.visibility = "hidden";
@@ -142,9 +142,9 @@ export function createPvp(o) {
         chud.killcam(null);
         player.dead = true; // the camera belongs to the end view now
         weapon.blocked = true;
-        weapon.mouseTrigger = weapon.keyTrigger = false;
+        weapon.releaseTriggers();
         document.getElementById("crosshair").style.visibility = "hidden";
-        document.exitPointerLock?.();
+        player.unlock(); // free the mouse (desktop) or stop the touch controls
         const rows = m.scores.map(([id, kills, deaths, letters]) => ({ ...info(id), id, kills, deaths, letters }));
         mhud.showEnd({
           winner: { ...info(m.winner), id: m.winner },

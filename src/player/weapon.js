@@ -25,6 +25,7 @@ export class Weapon {
     this.reloading = 0; // seconds left
     this.mouseTrigger = false; // left mouse button / touchpad click
     this.keyTrigger = false; // F key
+    this.touchTrigger = false; // on-screen fire button (ui/touchControls.js)
     this.recoil = 0; // view-model kick, decays
     this.flashT = 0;
     this.swayX = 0;
@@ -93,25 +94,31 @@ export class Weapon {
     // ---- input
     this._v = new THREE.Vector3();
     this._listeners = [
-      [document, "mousedown", (e) => { if (e.button === 0 && this.canShoot()) { this.mouseTrigger = true; this.dryFireCheck(); } }],
+      // touch mode ignores the mouse: phones send a fake mousedown for every tap (on any button)
+      [document, "mousedown", (e) => { if (e.button === 0 && !this.player.touchMode && this.canShoot()) { this.mouseTrigger = true; this.dryFireCheck(); } }],
       [document, "mouseup", (e) => { if (e.button === 0) this.mouseTrigger = false; }],
       [document, "keydown", (e) => {
         if (e.code === "KeyR" && this.player.enabled) this.reload();
         if (e.code === "KeyF" && !e.repeat && this.canShoot()) { this.keyTrigger = true; this.dryFireCheck(); }
       }],
       [document, "keyup", (e) => { if (e.code === "KeyF") this.keyTrigger = false; }],
-      [window, "blur", () => { this.mouseTrigger = this.keyTrigger = false; }],
+      [window, "blur", () => this.releaseTriggers()],
       [document, "pointerlockchange", () => { if (!document.pointerLockElement) this.mouseTrigger = this.keyTrigger = false; }],
     ];
     for (const [t, ev, fn] of this._listeners) t.addEventListener(ev, fn);
   }
 
   get trigger() {
-    return this.mouseTrigger || this.keyTrigger;
+    return this.mouseTrigger || this.keyTrigger || this.touchTrigger;
+  }
+
+  /** let go of every trigger (pause, death, end of match) */
+  releaseTriggers() {
+    this.mouseTrigger = this.keyTrigger = this.touchTrigger = false;
   }
 
   canShoot() {
-    return this.player.locked && this.player.enabled && !this.blocked;
+    return this.player.active && this.player.enabled && !this.blocked;
   }
 
   dryFireCheck() {
@@ -136,7 +143,7 @@ export class Weapon {
         this.onAmmo?.(this);
       }
     }
-    if (this.trigger && this.player.enabled && this.player.locked && !this.blocked && this.reloading === 0) {
+    if (this.trigger && this.player.enabled && this.player.active && !this.blocked && this.reloading === 0) {
       if (this.ammo > 0) {
         while (this.cooldown <= 0 && this.ammo > 0) {
           this.fire();

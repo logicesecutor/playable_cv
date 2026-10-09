@@ -32,12 +32,15 @@ export class PlayerCore {
 
   /**
    * @param {number} dt
-   * @param {{forward:number,right:number,sprint:boolean,crouch:boolean,up?:boolean,down?:boolean}} input
+   * @param {{forward:number,right:number,throttle?:number,sprint:boolean,crouch:boolean,up?:boolean,down?:boolean}} input
+   *   forward / right give the direction; throttle (0..1, default 1) scales the speed, so a
+   *   touch joystick pushed halfway walks slower
    * @returns {{landed:boolean, impact:number, footstep:boolean}}
    */
   step(dt, input) {
     const p = this.p;
     const ev = { landed: false, impact: 0, footstep: false };
+    const throttle = Math.max(0, Math.min(1, input.throttle ?? 1));
 
     // ---- wish direction from yaw (yaw 0 = -Z)
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
@@ -50,7 +53,7 @@ export class PlayerCore {
     const targetEye = this.crouching ? p.crouchEyeHeight : p.eyeHeight;
     this.eye += (targetEye - this.eye) * Math.min(1, dt * 12);
 
-    let speed = this.crouching ? p.crouchSpeed : input.sprint ? p.sprintSpeed : p.walkSpeed;
+    let speed = (this.crouching ? p.crouchSpeed : input.sprint ? p.sprintSpeed : p.walkSpeed) * throttle;
 
     if (this.fly) {
       // noclip debug camera

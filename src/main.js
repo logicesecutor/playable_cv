@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { config } from "./config.js";
+import { touchMode } from "./input/touchMode.js";
 import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
@@ -210,7 +211,7 @@ function startGame(pdf, online = {}) {
 
   // ---- simulation + effects
   const collision = new CollisionWorld(world.entities, world.size);
-  const player = new PlayerController(camera, canvas, collision, config);
+  const player = new PlayerController(camera, canvas, collision, config, { touch: touchMode });
   const debris = new Debris(collision);
   const sparks = new ParticleSystem(1500, { additive: true, gravity: 14, drag: 1.5 });
   const dust = new ParticleSystem(2500, { gravity: -0.3, drag: 1.8 });
@@ -284,7 +285,7 @@ function startGame(pdf, online = {}) {
   const setPlaying = (on) => {
     player.enabled = on;
     hud.setIntro(!on);
-    pause.hidden = !on || player.locked;
+    pause.hidden = !on || player.active;
     if (on) {
       hud.ammo(weapon);
       hud.integrity(destruction);
@@ -296,17 +297,18 @@ function startGame(pdf, online = {}) {
     if (e.code === "KeyI" && intro?.done) {
       // replay the intro (the map keeps its damage)
       setPlaying(false);
-      document.exitPointerLock?.();
       intro.reset();
+      player.unlock(); // after the reset: the pause card stays hidden during the intro
       scene.fog = null;
     }
     if (e.code === "KeyM") hud.toast(sfx.toggleMute() ? "Sound off" : "Sound on");
   };
   document.addEventListener("keydown", onKey);
 
-  player.onLockChanged = (locked) => {
-    if (intro.done) pause.hidden = locked;
-    if (locked) document.activeElement?.blur?.(); // don't type WASD into the name field
+  player.onLockChanged = (active) => {
+    if (intro.done) pause.hidden = active;
+    if (active) document.activeElement?.blur?.(); // don't type WASD into the name field
+    else weapon.releaseTriggers();
   };
 
   // ---- multiplayer
@@ -448,7 +450,7 @@ function startGame(pdf, online = {}) {
     const banner = $("reconnect");
     banner.hidden = false;
     weapon.blocked = true;
-    weapon.mouseTrigger = weapon.keyTrigger = false;
+    weapon.releaseTriggers();
     const resume = { x: player.core.x, z: player.core.z, yaw: player.core.yaw };
     const until = performance.now() + 60000;
     for (let attempt = 1; !disposed && performance.now() < until; attempt++) {

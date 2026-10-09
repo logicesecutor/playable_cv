@@ -2,6 +2,10 @@
 // real letter shapes (CollisionWorld). Owns the player's feet position and drives the camera.
 //
 // The movement itself lives in PlayerCore (plain math, simulated in Node by tools/sim-player.mjs).
+//
+// "In control" (`active`) means the game takes input: on desktop that is pointer lock, on touch
+// devices (no pointer lock there) it starts when the player taps Play and ends with the pause
+// button. The on-screen controls (ui/touchControls.js) write into `touch` and call `addLook`.
 import * as THREE from "three";
 import { PlayerCore } from "./playerCore.js";
 
@@ -13,17 +17,23 @@ export class PlayerController {
    * @param {HTMLElement} dom element that captures the pointer
    * @param {import("../world/collision.js").CollisionWorld} collision
    * @param {typeof import("../config.js").config} cfg
+   * @param {{touch?: boolean}} [opts] touch: on-screen controls instead of pointer lock
    */
-  constructor(camera, dom, collision, cfg) {
+  constructor(camera, dom, collision, cfg, opts = {}) {
     this.camera = camera;
     this.dom = dom;
     this.cfg = cfg;
     this.enabled = false;
-    this.locked = false;
+    this.locked = false; // desktop: the pointer is captured
+    this.touchMode = !!opts.touch;
+    this.touchActive = false; // touch: the player tapped Play and hasn't paused since
+    /** written by the on-screen controls; forward/right in -1..1, throttle 0..1 (stick distance) */
+    this.touch = { forward: 0, right: 0, throttle: 1, sprint: false, crouch: false };
     this.core = new PlayerCore(collision, cfg.player);
     this.keys = new Set();
     this.euler = new THREE.Euler(0, 0, 0, "YXZ");
-    /** called on pointer lock changes: (locked:boolean) => void */
+    /** called when the player gains / loses control (pointer lock, or Play / pause on touch):
+     *  (active:boolean) => void */
     this.onLockChanged = null;
     /** hooks for later milestones (footstep sounds, landing thud) */
     this.onFootstep = null;
@@ -61,7 +71,7 @@ export class PlayerController {
       [document, "keydown", (e) => {
         if (!this.enabled) return;
         // keep arrows / space from scrolling or clicking focused buttons while playing
-        if (this.locked && (e.code.startsWith("Arrow") || e.code === "Space")) e.preventDefault();
+        if (this.active && (e.code.startsWith("Arrow") || e.code === "Space")) e.preventDefault();
         if (e.repeat) return;
         if (MOVE_KEYS.has(e.code) && !this.anyMoveKey()) {
           const now = performance.now();
@@ -75,6 +85,7 @@ export class PlayerController {
       [document, "keyup", (e) => this.keys.delete(e.code)],
       [window, "blur", () => this.keys.clear()],
       [document, "pointerlockchange", () => {
+        if (this.touchMode) return;
         this.locked = document.pointerLockElement === this.dom;
         if (!this.locked) this.keys.clear();
         this.onLockChanged?.(this.locked);
@@ -84,11 +95,48 @@ export class PlayerController {
     for (const [t, ev, fn] of this._listeners) t.addEventListener(ev, fn);
   }
 
+  /** the game takes input: pointer lock on desktop, Play tapped on touch */
+  get active() {
+    return this.locked || this.touchActive;
+  }
+
+  /** take control: capture the pointer (desktop) or start the touch controls */
   lock() {
-    if (!this.enabled || this.locked) return;
+    if (!this.enabled || this.active) return;
+    if (this.touchMode) {
+      this.touchActive = true;
+      this.onLockChanged?.(true);
+      return;
+    }
     // Chrome refuses a re-lock for ~1 s after Esc; the next click will work
     const p = this.dom.requestPointerLock?.();
     p?.catch?.(() => {});
+  }
+
+  /** give control back (pause): release the pointer (desktop) or stop the touch controls */
+  unlock() {
+    if (!this.touchMode) {
+      document.exitPointerLock?.();
+      return;
+    }
+    if (!this.touchActive) return;
+    this.touchActive = false;
+    this.releaseTouch();
+    this.onLockChanged?.(false);
+  }
+
+  /** all fingers off: no movement, no crouch */
+  releaseTouch() {
+    Object.assign(this.touch, { forward: 0, right: 0, throttle: 1, sprint: false, crouch: false });
+  }
+
+  /** touch look (drag), in radians; the gun sways with it like with the mouse */
+  addLook(yaw, pitch) {
+    if (!this.active || !this.enabled) return;
+    this.core.yaw -= yaw;
+    this.core.pitch = Math.max(-1.55, Math.min(1.55, this.core.pitch - pitch));
+    this._look.dx += yaw / this.cfg.mouseSensitivity;
+    this._look.dy += pitch / this.cfg.mouseSensitivity;
   }
 
   /** place the player (feet) and face direction; yaw 0 looks up the page (-Z) */
@@ -106,7 +154,7 @@ export class PlayerController {
     // arrow keys aim: a full keyboard alternative to the mouse / touchpad
     const lx = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
     const ly = (k.has("ArrowUp") ? 1 : 0) - (k.has("ArrowDown") ? 1 : 0);
-    if ((lx || ly) && this.locked) {
+    if ((lx || ly) && this.active) {
       this.keyLookRamp = Math.min(1, this.keyLookRamp + dt * 3);
       const sp = this.cfg.keyLookSpeed * (0.35 + 0.65 * this.keyLookRamp) * dt;
       this.core.yaw -= lx * sp;
@@ -120,12 +168,24 @@ export class PlayerController {
     const input = {
       forward: (k.has("KeyW") ? 1 : 0) - (k.has("KeyS") ? 1 : 0),
       right: (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0),
+      throttle: 1,
       sprint: k.has("ShiftLeft") || k.has("ShiftRight"),
       crouch: k.has("KeyC"), // not Ctrl: Ctrl+W would close the tab
       up: k.has("KeyE") || k.has("Space"),
       down: k.has("KeyQ"),
     };
-    if (!this.locked) { input.forward = input.right = 0; }
+    if (this.touchMode) {
+      // the stick drives movement unless a (bluetooth) keyboard is being used
+      const t = this.touch;
+      if (!input.forward && !input.right) {
+        input.forward = t.forward;
+        input.right = t.right;
+        input.throttle = t.throttle;
+      }
+      input.sprint ||= t.sprint;
+      input.crouch ||= t.crouch;
+    }
+    if (!this.active) { input.forward = input.right = 0; }
 
     const ev = this.core.step(dt, input);
     if (ev.landed) {
@@ -170,7 +230,7 @@ export class PlayerController {
   // pressed a movement key, and the pointer went completely silent for over a second.
   // Seen twice -> tell the player about arrow-key aiming and the system setting.
   detectTouchpadPause() {
-    if (this._hintShown || !this.locked || !this.anyMoveKey() || !this._mouseWasActive) return;
+    if (this._hintShown || this.touchMode || !this.locked || !this.anyMoveKey() || !this._mouseWasActive) return;
     const now = performance.now();
     if (this._lastMouseMove < this._moveKeysSince && now - this._moveKeysSince > 1200) {
       this._mouseWasActive = false; // count this run only once
