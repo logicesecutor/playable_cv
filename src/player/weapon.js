@@ -1,6 +1,10 @@
-// The gun: low-poly view-model drawn in its own pass (so it never clips into letters), automatic
-// hitscan fire with spread, magazine + reload, recoil, sway, bob, muzzle flash, light and tracers.
+// The gun: view-model drawn in its own pass (so it never clips into letters), automatic hitscan
+// fire with spread, magazine + reload, recoil, sway, bob, muzzle flash, light and tracers.
+// The view-model is the typewriter blaster with first-person mitten hands (gunModel.js), or the
+// old box gun (buildGun below) if the model isn't available.
 import * as THREE from "three";
+import { createGun } from "./gunModel.js";
+import { PLAYER_COLORS } from "../net/room.js";
 
 export class Weapon {
   /**
@@ -48,9 +52,13 @@ export class Weapon {
     key.position.set(-1, 2, 1);
     this.viewScene.add(key);
 
-    this.gun = buildGun();
+    this.gun = createGun({ fp: true, accent: PLAYER_COLORS[0] }); // the host's colour until we know ours
     this.viewScene.add(this.gun.root);
-    this.restPos = new THREE.Vector3(0.24, -0.24, -0.5);
+    // the chunky typewriter sits a little closer and lower than the long box gun
+    this.restPos = this.gun.model ? new THREE.Vector3(0.25, -0.265, -0.6) : new THREE.Vector3(0.24, -0.24, -0.5);
+    const mag = this.gun.magazine;
+    this.magRest = mag ? mag.position.clone() : null;
+    this.handLRest = this.gun.hands.l ? this.gun.hands.l.position.clone() : null;
 
     // muzzle flash sprite (child of the gun, so it moves with recoil)
     this.flash = new THREE.Sprite(
@@ -268,6 +276,26 @@ export class Weapon {
       this.swayX + (sprinting ? 0.35 : 0),
       -rl * 0.35 + this.swayX * 0.6,
     );
+
+    // reload: the ink-ribbon cartridge drops out, the left hand follows it down and slaps a new
+    // one in (procedural until the Phase 3 clips)
+    if (this.magRest) {
+      const p = this.reloading > 0 ? 1 - this.reloading / this.w.reloadTime : 1;
+      const out = p < 0.4 ? smooth(p / 0.4) : p < 0.6 ? 1 : 1 - smooth((p - 0.6) / 0.4);
+      const mag = this.gun.magazine;
+      mag.position.copy(this.magRest);
+      mag.position.y -= out * 0.22; // down, in the gun's own (Y-up) space
+      mag.visible = !(p > 0.38 && p < 0.62); // the swap happens out of view
+      if (this.handLRest) {
+        this.gun.hands.l.position.copy(this.handLRest);
+        this.gun.hands.l.position.y -= out * 0.16;
+      }
+    }
+  }
+
+  /** the local player's colour (the space bar of the typewriter) */
+  setAccent(color) {
+    this.gun.setAccent(color);
   }
 
   /** draw the gun on top of the already-rendered frame */
@@ -292,6 +320,9 @@ export class Weapon {
 
 // ------------------------------------------------------------------------------------------------
 
+const smooth = (t) => t * t * (3 - 2 * t);
+
+/** the old procedural box gun (fallback when gun.glb isn't available, and the box soldier's gun) */
 export function buildGun() {
   const root = new THREE.Group();
   const metal = new THREE.MeshStandardMaterial({ color: 0x23262d, roughness: 0.45, metalness: 0.6 });

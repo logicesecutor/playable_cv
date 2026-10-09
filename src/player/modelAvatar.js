@@ -11,7 +11,7 @@
 // Weapon bone.
 import * as THREE from "three";
 import { instantiate } from "../assets/models.js";
-import { buildGun } from "./weapon.js";
+import { createGun } from "./gunModel.js";
 import { FLAG } from "../net/snapshots.js";
 
 const THIGH = 0.24; // hip -> knee (rig)
@@ -22,10 +22,11 @@ const ANKLE = 0.1; // ankle height
 // (head centre within ~5 cm of the crouched head hitbox; the feet end up ~0.3 m behind centre)
 const CROUCH = { thigh: 1.55, shin: -2.75, lean: 0.8, squash: 0.75, hipsBack: 0.3 };
 
-/** grip points in Aim-bone space (model space: +Z forward, -X = the character's right) */
-const GUN_AT = new THREE.Vector3(-0.1, -0.07, 0.35); // Weapon bone rest offset (rig)
-const HAND_R = new THREE.Vector3(-0.12, -0.17, 0.24); // on the pistol grip
-const HAND_L = new THREE.Vector3(-0.05, -0.1, 0.6); // under the handguard
+/** where the gun sits, in Aim-bone space (model space: +Z forward, -X = the character's right) */
+const GUN_AT = new THREE.Vector3(-0.08, -0.06, 0.34);
+/** mitten centre relative to the gun's grip points (a mitten is ~0.17 m: it wraps the grip) */
+const HAND_R_OFF = new THREE.Vector3(-0.035, -0.02, 0);
+const HAND_L_OFF = new THREE.Vector3(0.03, -0.045, 0);
 
 const legHeight = (a, b) => THIGH * Math.cos(a) + SHIN * Math.cos(a + b) + ANKLE;
 
@@ -60,22 +61,26 @@ export class ModelAvatar {
     this.hipsRest = this.b.hips.position.clone();
     this.headRestY = this.b.head.position.y;
 
-    // hands on the gun
-    this.b.handR.position.copy(HAND_R);
-    this.b.handL.position.copy(HAND_L);
-    this.b.handR.rotation.set(0.25, 0, -0.2);
-    this.b.handL.rotation.set(-0.3, 0, 0.5);
-
-    // the gun (the old box gun until the typewriter blaster, Phase 2): it faces -Z, the rig +Z
-    const gun = buildGun();
+    // the typewriter blaster on the Weapon bone (it faces -Z, the rig +Z)
+    const gun = createGun({ accent: color });
     gun.root.rotation.y = Math.PI;
     gun.root.traverse((o) => o.isMesh && (o.castShadow = true));
     this.b.weapon.position.copy(GUN_AT);
+    this.b.weapon.rotation.set(0, 0, 0);
     this.b.weapon.add(gun.root);
     this.gun = gun;
     this.muzzle = new THREE.Object3D(); // where remote tracers start
     this.muzzle.position.copy(gun.muzzle);
     gun.root.add(this.muzzle);
+
+    // hands on the gun's grips (hands and Weapon are both children of Aim, so: grip -> Aim space)
+    const toAim = (p, off) => p.clone().applyMatrix4(gun.root.matrix).applyMatrix4(this.b.weapon.matrix).add(off);
+    this.b.weapon.updateMatrix();
+    gun.root.updateMatrix();
+    this.b.handR.position.copy(toAim(gun.grips.r, HAND_R_OFF));
+    this.b.handL.position.copy(toAim(gun.grips.l, HAND_L_OFF));
+    this.b.handR.rotation.set(0.2, 0, -0.15);
+    this.b.handL.rotation.set(-0.2, 0, 0.35);
 
     this.phase = 0;
     this.dead = false;
@@ -177,10 +182,6 @@ export class ModelAvatar {
   dispose() {
     this.root.removeFromParent();
     this.inst.dispose(); // the model's geometry + palette are shared between players: kept
-    this.gun.root.traverse((o) => {
-      if (!o.isMesh) return;
-      o.geometry.dispose();
-      o.material.dispose();
-    });
+    this.gun.dispose();
   }
 }

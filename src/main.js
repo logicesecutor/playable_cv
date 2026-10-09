@@ -324,6 +324,8 @@ function startGame(pdf, online = {}) {
 
   const wireRoom = (r) => {
     sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
+    const me = r.players.find((p) => p.id === r.selfId);
+    if (me) weapon.setAccent(me.color); // our colour on the typewriter's space bar
     r.onFastMessage = (msg, from) => sync?.onFast(msg, from);
 
     letters = new LetterNet({
