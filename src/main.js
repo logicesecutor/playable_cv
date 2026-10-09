@@ -40,6 +40,12 @@ function show(name) {
 }
 initTitles();
 
+{
+  // graphics preset: phones and tablets get the cheaper one (config.graphics)
+  const q = new URLSearchParams(location.search).get("gfx");
+  const name = q === "low" || q === "high" ? q : touchMode ? "low" : "high";
+  config.gfx = { name, ...config.graphics[name] };
+}
 config.net.broker = brokerFromUrl(config.net.broker);
 config.net.netsim = netsimFromUrl(); // developer tool: ?netsim=lag:80,jitter:30,loss:0.05
 applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<key> swaps the relay account
@@ -187,9 +193,10 @@ function startGame(pdf, online = {}) {
 
   const canvas = $("view");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const gfx = config.gfx;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, gfx.pixelRatio));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = gfx.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
@@ -200,7 +207,7 @@ function startGame(pdf, online = {}) {
   const world = buildWorld(pdf, config, renderer);
   scene.add(world.root);
   const map = mapFingerprint(world);
-  console.info("[playable-cv] world", world.stats, "map", map);
+  console.info("[playable-cv] world", world.stats, "map", map, "graphics", gfx.name);
   if (online.room && map.count !== online.hostMap.count) {
     // ids wouldn't line up with the host's: can't play together
     online.room.leave();
@@ -214,9 +221,9 @@ function startGame(pdf, online = {}) {
   // ---- simulation + effects
   const collision = new CollisionWorld(world.entities, world.size);
   const player = new PlayerController(camera, canvas, collision, config, { touch: touchMode });
-  const debris = new Debris(collision);
-  const sparks = new ParticleSystem(1500, { additive: true, gravity: 14, drag: 1.5 });
-  const dust = new ParticleSystem(2500, { gravity: -0.3, drag: 1.8 });
+  const debris = new Debris(collision, gfx.debris);
+  const sparks = new ParticleSystem(Math.round(1500 * gfx.particles), { additive: true, gravity: 14, drag: 1.5 });
+  const dust = new ParticleSystem(Math.round(2500 * gfx.particles), { gravity: -0.3, drag: 1.8 });
   scene.add(debris.mesh, sparks.points, dust.points);
   const destruction = new Destruction({ world, collision, debris, sparks, dust, sfx, pdf, cfg: config });
   const weapon = new Weapon({ camera, scene, player, collision, destruction, sfx, cfg: config });

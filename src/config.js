@@ -73,6 +73,15 @@ export const config = {
     fly: 3.2, // camera swoop to the spawn point
   },
 
+  // ---- graphics presets. Touch devices get "low", desktop "high"; ?gfx=low / ?gfx=high overrides.
+  // main.js copies the chosen one into config.gfx before the map is built.
+  graphics: {
+    high: { pixelRatio: 2, shadowMapSize: 4096, softShadows: true, particles: 1, debris: 2500 },
+    // phones: ~3x fewer pixels than a 3x screen, a quarter of the shadow texels, half the particles
+    low: { pixelRatio: 1.25, shadowMapSize: 2048, softShadows: false, particles: 0.5, debris: 1200 },
+  },
+  gfx: null, // the active preset (set at startup)
+
   // ---- look
   inkLift: 0.1, // lifts pure black a little so letters show shading
 

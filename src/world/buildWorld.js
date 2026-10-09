@@ -196,7 +196,8 @@ export function buildWorld(pdf, cfg, renderer) {
   sun.position.set(W / 2 - span * 0.35, span * 0.6, D / 2 + span * 0.25);
   sun.target.position.set(W / 2, 0, D / 2);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
+  const shadowSize = cfg.gfx?.shadowMapSize ?? 4096; // smaller on phones (config.graphics)
+  sun.shadow.mapSize.set(shadowSize, shadowSize);
   const half = span * 0.62;
   Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: span * 2.5 });
   sun.shadow.bias = -0.0004;
