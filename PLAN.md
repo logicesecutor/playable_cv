@@ -1,4 +1,7 @@
-# Playable CV — plan
+# Destroy Your Career — plan
+
+Formerly "Playable CV" (renamed in v0.4.0); the repo and the GitHub Pages URL keep the old
+`playable_cv` name.
 
 Upload a CV as a PDF and it turns into a destructible 3D FPS map: every letter, icon and
 rule of the page is extruded out of the floor, you drop in first-person with a gun, and the
@@ -145,6 +148,15 @@ Each milestone ends with something runnable.
       on the paper (≤ 1 per ~7 m, cleared on rematch); FIRED! over kills. Purely visual. Single player +
       headless two-page duel, `sim:pvp`, `sim:match`, `test:ray` and the build pass. Details in the
       README ("Word shots").
+- [x] **Rename + animated title (v0.4.0).** The game is now **Destroy Your Career** everywhere players
+      see it (browser tab, first page, join screen "Join the game", loading screen, end card, model
+      viewer, package name `destroy-your-career`); tagline "Your CV. Their bullets. No callbacks."
+      `src/ui/title.js`: "Destroy Your" types itself out, then a red rubber stamp CAREER slams down
+      (the REJECTED / FIRED! stamp look), animated once on the first page and the join screen, static
+      and small on the loading screen and end card, respects `prefers-reduced-motion`. The
+      "prototype · vX" tag reads `package.json` via the Vite define `__APP_VERSION__`, bumped to 0.4.0.
+      Kept on purpose: repo + Pages URL (`playable_cv`, invite links keep working), `localStorage` keys
+      `playable-cv:*` (saved names, rejoin keys) and the `[playable-cv]` console prefixes.
 
 ## Multiplayer architecture
 

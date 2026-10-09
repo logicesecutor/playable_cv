@@ -1,8 +1,18 @@
-# Playable CV
+# Destroy Your Career
+
+*Your CV. Their bullets. No callbacks.*
+
+Formerly "Playable CV": the GitHub repo (`logicesecutor/playable_cv`) and the Pages URL keep the old
+`playable_cv` name, so existing invite links and the deploy keep working.
 
 Drop a PDF CV into the page and it becomes a 3D map: every letter, icon and rule is extruded
 out of the paper. You land in first person among the letters with a gun, and every letter can be
 shot to pieces. See [PLAN.md](PLAN.md) for the roadmap.
+
+The first page and the join screen open with the animated title (`src/ui/title.js`): "Destroy Your"
+types itself out, then a red rubber stamp CAREER slams down, the same stamp as the in-game
+REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.4.0" tag comes from
+`package.json` (`version`, injected by `vite.config.js` as `__APP_VERSION__`): bump it there.
 
 ## Controls
 
@@ -408,7 +418,10 @@ src/
   ui/nameTags.js        HTML name tags projected from 3D over other players
   ui/matchHud.js        match bar (first to N, leader, you) and end card (winner, table, awards, Rematch)
   ui/lobby.js           join screen, invite box (pause card), player list with ping (+ "relay", "reconnecting…"),
-                        notice feed, saved nickname, per-tab rejoin key (sessionStorage)
+                        notice feed, saved nickname, per-tab rejoin key (sessionStorage); the storage keys
+                        keep the old `playable-cv:` prefix so saved names / rejoins survive the rename
+  ui/title.js           game title "Destroy Your Career" on every `.game-title` (typed + stamped with
+                        `data-animate`, static with `small`), `{version}` tags from package.json, tab title
   net/signaling.js      PeerJS-protocol signaling client over WebSocket, ?broker= override, reusable token
   net/peerLink.js       one RTCPeerConnection: "rel" (reliable) + "fast" (unreliable) channels, chunked binary,
                         lastRecv (watchdogs), forced relay policy
@@ -446,6 +459,6 @@ tools/sim-pvp.mjs       PvP: host + 5 guests fight 90 s on a laggy fake link, sc
 tools/sim-match.mjs     match flow: 3 matches to 10, instant rematches, late joiners, results agree (`npm run sim:match`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
-vite.config.js          `base` from BASE_PATH (sub-path on GitHub Pages)
+vite.config.js          `base` from BASE_PATH (sub-path on GitHub Pages), `__APP_VERSION__` from package.json
 .github/workflows/deploy-pages.yml  build on push to main (or by hand) and publish dist/ to GitHub Pages
 ```
