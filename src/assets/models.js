@@ -11,6 +11,15 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { config } from "../config.js";
+
+/** character look: config.characters, overridable with ?toon=1 / ?rim=0.5 (and the model viewer) */
+export const style = { ...config.characters };
+{
+  const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+  if (q?.has("toon")) style.toon = q.get("toon") !== "0";
+  if (q?.has("rim")) style.rim = Math.max(0, Number(q.get("rim")) || 0);
+}
 
 /** name -> file in public/models */
 export const MODEL_FILES = {
@@ -104,10 +113,12 @@ export function instantiate(name, { accent } = {}) {
     else o.material = own(o.material);
   });
   function own(m) {
-    if (m.name !== "Accent") return m;
+    const styled = stylize(m);
+    if (m.name !== "Accent") return styled;
     let c = owned.find((x) => x.userData.src === m);
     if (!c) {
-      c = m.clone();
+      c = styled.clone();
+      if (style.rim > 0) addRim(c, style.rim); // clone() doesn't carry the shader hook
       c.userData.src = m;
       owned.push(c);
     }
@@ -129,4 +140,55 @@ export function instantiate(name, { accent } = {}) {
       for (const m of owned) m.dispose(); // geometry + palette texture are shared: keep them
     },
   };
+}
+
+// ------------------------------------------------------------------ look: toon ramp + rim light
+
+let gradient = null;
+/** 3-band ramp for MeshToonMaterial (shadow, mid, lit) */
+function toonGradient() {
+  if (!gradient) {
+    gradient = new THREE.DataTexture(new Uint8Array([110, 190, 255]), 3, 1, THREE.RedFormat);
+    gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
+    gradient.needsUpdate = true;
+  }
+  return gradient;
+}
+
+/** the loaded material as the current `style` wants it (cached per source material and style) */
+function stylize(m) {
+  if (!style.toon && !(style.rim > 0)) return m;
+  const key = `${style.toon ? 1 : 0}|${style.rim}`;
+  const cache = (m.userData.styled ??= {});
+  if (cache[key]) return cache[key];
+  let s;
+  if (style.toon) {
+    s = new THREE.MeshToonMaterial({
+      name: m.name, map: m.map, color: m.color.clone(), gradientMap: toonGradient(),
+      emissive: m.emissive.clone(), emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity, side: m.side,
+    });
+  } else s = m.clone();
+  if (style.rim > 0) addRim(s, style.rim);
+  return (cache[key] = s);
+}
+
+/** adds a cool fresnel rim to a standard / toon material (silhouettes pop against the paper) */
+export function addRim(mat, strength) {
+  const rim = { value: strength };
+  mat.userData.rim = rim;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.rimStrength = rim;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float rimStrength;")
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));
+          outgoingLight += rimStrength * pow(rimF, 3.0) * vec3(0.78, 0.88, 1.0);
+        }
+        #include <opaque_fragment>`,
+      );
+  };
+  mat.customProgramCacheKey = () => `pcv-rim-${mat.type}`;
+  mat.needsUpdate = true;
 }

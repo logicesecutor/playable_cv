@@ -4,7 +4,7 @@
 // head sits inside the head hitbox, standing and crouched.
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { preloadModels, reloadModels, instantiate, getModel } from "../assets/models.js";
+import { preloadModels, reloadModels, instantiate, getModel, style } from "../assets/models.js";
 import { BoxAvatar, createAvatar } from "../player/avatar.js";
 import { OUTFITS } from "../net/room.js";
 import { FLAG } from "../net/snapshots.js";
@@ -33,6 +33,8 @@ sun.position.set(-3, 6, -4);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 0.5, far: 20 });
+sun.shadow.bias = -0.0004; // as in buildWorld.js (no shadow acne on the round shapes)
+sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
 // paper floor
@@ -172,6 +174,19 @@ $("wire").onchange = applyWireframe;
 $("accent").oninput = () => {
   for (const b of bodies.slice(1)) b.avatar.inst?.setAccent($("accent").value);
   gunDisplay?.setAccent($("accent").value);
+};
+// look switches (same as ?toon=1 / ?rim=0.5 in the game)
+$("toon").checked = style.toon;
+$("rim").value = style.rim;
+$("rimv").textContent = style.rim;
+$("toon").onchange = () => {
+  style.toon = $("toon").checked;
+  placeBodies();
+};
+$("rim").onchange = () => {
+  style.rim = Number($("rim").value);
+  $("rimv").textContent = style.rim;
+  placeBodies();
 };
 const reload = () => {
   $("status").textContent = "reloading…";

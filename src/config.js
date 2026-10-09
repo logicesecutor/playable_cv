@@ -49,6 +49,12 @@ export const config = {
     punch: 0.025, // visual-only kick that springs back
   },
 
+  // ---- look of the Blender characters + gun (src/assets/models.js). URL overrides: ?toon=1 ?rim=0.5
+  characters: {
+    toon: false, // stepped toon lighting instead of smooth (MeshToonMaterial, 3 bands)
+    rim: 0.35, // cool rim light on the silhouette (0 = off)
+  },
+
   // ---- intro timeline (seconds)
   intro: {
     hold: 1.0, // flat page, top view
