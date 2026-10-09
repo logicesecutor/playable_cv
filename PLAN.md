@@ -1,7 +1,8 @@
 # Destroy Your Career — plan
 
 Formerly "Playable CV" (renamed in v0.4.0); the repo and the GitHub Pages URL keep the old
-`playable_cv` name.
+`playable_cv` name. Current version: **0.5.0** (mobile touch controls; the "prototype · vX" tag on
+the first page reads `package.json`).
 
 Upload a CV as a PDF and it turns into a destructible 3D FPS map: every letter, icon and
 rule of the page is extruded out of the floor, you drop in first-person with a gun, and the
@@ -16,6 +17,7 @@ original page becomes the minimap.
 | Scale | **Cover height.** Body text is roughly chest-high (you can look and shoot over it). Bigger fonts (the name) are proportionally taller. All of it is tunable in `src/config.js`. |
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
 | Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
+| Mobile | **Phones and tablets in landscape, on-screen controls.** Floating joystick with auto-sprint at the edge (roughly forward), drag to look, fire button that also aims with the same thumb, crouch on hold; fullscreen + landscape lock on Play where supported (Android yes, iPad fullscreen only, iPhone neither); automatic low graphics preset; no aim assist for now. Targets Android Chrome and tablets. Full plan in [MOBILE.md](MOBILE.md). |
 
 ## How the PDF becomes geometry
 
@@ -157,6 +159,14 @@ Each milestone ends with something runnable.
       "prototype · vX" tag reads `package.json` via the Vite define `__APP_VERSION__`, bumped to 0.4.0.
       Kept on purpose: repo + Pages URL (`playable_cv`, invite links keep working), `localStorage` keys
       `playable-cv:*` (saved names, rejoin keys) and the `[playable-cv]` console prefixes.
+- [x] **Mobile touch controls (T1–T5), v0.5.0.** Touch mode decided once at load (`?touch=1/0`);
+      `player.active` (pointer lock or touch Play) replaces the pointer-lock checks; on-screen controls
+      (`ui/touchControls.js`): floating joystick with analog speed and auto-sprint, drag look, fire + aim
+      with one thumb, jump, crouch (hold), reload, pause / scoreboard / mute, multi-touch by `pointerId`;
+      landscape only (rotate card), fullscreen + orientation lock on Play, auto-pause (portrait,
+      background, leaving fullscreen); HUD inside the safe areas; "low" graphics preset on touch
+      (`?gfx=`). All sims pass, desktop unchanged in Chromium, emulated Pixel 7 multi-touch checked.
+      **Still to do (Christian):** the real-device checklist in [MOBILE.md](MOBILE.md).
 
 ## Multiplayer architecture
 
@@ -284,4 +294,5 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 `npm run test:interp` tests remote-player smoothing under simulated networks; `npm run sim:net` tests shared
 destruction, `npm run sim:pvp` player vs player and `npm run sim:match` the match flow (`LAG=`, `JITTER=`, `SEED=`);
 `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser, `?target=3` shortens matches,
-`?relay=1` / `?turn=<app>:<key>` test the TURN relay. `npm run build` builds the site (GitHub Pages: see the README).
+`?relay=1` / `?turn=<app>:<key>` test the TURN relay, `?touch=1` / `?touch=0` force the touch controls,
+`?gfx=low` / `?gfx=high` pick the graphics preset. `npm run build` builds the site (GitHub Pages: see the README).

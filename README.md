@@ -7,11 +7,12 @@ Formerly "Playable CV": the GitHub repo (`logicesecutor/playable_cv`) and the Pa
 
 Drop a PDF CV into the page and it becomes a 3D map: every letter, icon and rule is extruded
 out of the paper. You land in first person among the letters with a gun, and every letter can be
-shot to pieces. See [PLAN.md](PLAN.md) for the roadmap.
+shot to pieces. It plays on desktop (mouse + keyboard) and on phones and tablets in landscape
+(touch controls, see [MOBILE.md](MOBILE.md)). See [PLAN.md](PLAN.md) for the roadmap.
 
 The first page and the join screen open with the animated title (`src/ui/title.js`): "Destroy Your"
 types itself out, then a red rubber stamp CAREER slams down, the same stamp as the in-game
-REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.4.0" tag comes from
+REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5.0" tag comes from
 `package.json` (`version`, injected by `vite.config.js` as `__APP_VERSION__`): bump it there.
 
 ## Controls
@@ -32,6 +33,26 @@ REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.4
 | M | mute |
 | I | replay the intro |
 | Esc | pause |
+
+### Phones and tablets (touch)
+
+Phones and tablets get on-screen controls instead (landscape only). The game decides once at load
+whether the device's primary pointer is a finger; details, tuning and the device checklist are in
+[MOBILE.md](MOBILE.md).
+
+| Touch | |
+|---|---|
+| Tap the pause card | play: goes fullscreen and locks landscape where the browser allows it (Android Chrome; iPad fullscreen only; iPhone neither) |
+| Left thumb (left 45 %) | floating joystick: push a little to walk slowly, further to walk, all the way roughly forward to sprint |
+| Right thumb (right 55 %) | drag anywhere to look |
+| Fire button (hold) | fire; drag the same thumb to aim while firing |
+| ⌃ / ⌄ | jump (tap) / crouch (hold) |
+| ↻ | reload |
+| Top-left row | pause · scoreboard (hold, multiplayer) · sound |
+
+Turning the phone to portrait shows a "Turn your phone sideways" card and pauses the game; so does
+leaving fullscreen or switching to another app. Touch devices use a cheaper graphics preset
+(`config.graphics.low`). A Bluetooth keyboard still works on a tablet.
 
 ### Playing on a laptop touchpad (Linux)
 
@@ -58,6 +79,8 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
 - `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 - http://localhost:5173/viewer.html is the model viewer (dev only, see "Characters and the gun").
+- On a phone or tablet: `npm run dev -- --host` and open the LAN address Vite prints
+  (`http://192.168.x.x:5173`) on the device, same Wi-Fi. See [MOBILE.md](MOBILE.md) for the checklist.
 - `npm run build` writes the static site to `dist/` (`BASE_PATH=/<repo>/` when it is served from a
   sub-path, as on GitHub Pages; the deploy workflow sets it).
 
@@ -186,8 +209,8 @@ few evenings of play.
 - [ ] Phone: **Wi-Fi off**, mobile data on (a different network), open the invite link.
 - [ ] Expect: the phone joins, downloads the CV, shows the same map, and both player lists show both
       players (with "· relay" on the host if the relay was needed).
-- [ ] The phone has no touch controls (it can't move or shoot): this checks connection and map, not
-      gameplay.
+- [ ] Play from the phone too (touch controls, landscape): move, shoot the PC player, check both
+      scoreboards agree.
 - [ ] If it fails with "couldn't connect", set up the relay above and retry (or try `?relay=1` on both).
 
 ### Testing on a bad connection
@@ -200,7 +223,9 @@ it before sharing a real link.
 
 Other developer URL options: `?target=3` for short test matches (first to 3; only the host's value
 counts), `?relay=1` forces every connection through the TURN relay, `?turn=<app>:<key>` uses another
-Metered relay app for this page load.
+Metered relay app for this page load, `?touch=1` / `?touch=0` force the touch controls on or off
+(`?touch=1` with the browser's device emulation tests the phone layout on a PC), `?gfx=low` /
+`?gfx=high` pick the graphics preset (default: low on touch devices, high on desktop).
 
 ### Where the link works
 
@@ -379,7 +404,9 @@ src/
                         100 ms timer keeps the network running when a hidden tab gets no frames;
                         guest auto-rejoin after a drop, end-of-match camera flight to the top view
   config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
-                        characters: toon / rim)
+                        characters: toon / rim, touch controls, graphics presets low / high)
+  input/touchMode.js    touch mode: decided once at load (primary pointer is a finger), ?touch=1/0, html.touch
+  input/fullscreen.js   fullscreen + landscape lock on Play (best effort), fullscreen change events
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
   pdf/outlines.js       path commands -> polygons with holes (pure, no three.js)
   pdf/loadPdf.js        browser wiring for pdf.js + worker (from a File or raw bytes; keeps `pdf.bytes`)
@@ -387,11 +414,13 @@ src/
   world/intro.js        top view -> letters rise -> camera swoop
   world/collision.js    spatial grid + circle-vs-letter-outline collision (pure JS)
   world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
-  player/playerCore.js  movement simulation: accel, jump, gravity, step-up (pure JS)
-  player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag
+  player/playerCore.js  movement simulation: accel, jump, gravity, step-up, analog throttle (pure JS)
+  player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag;
+                        `active` (pointer lock or touch Play), `touch` stick state, addLook() for drag look
   player/weapon.js      view-model (typewriter via gunModel.js: restPos, roll-over + cartridge drop on reload,
                         setAccent), firing, spread, recoil, reload, tracers, muzzle flash; buildGun() (box gun);
-                        hooks for player hits (playerRay / onPlayerHit / onFired / blocked), onTracer (word shots)
+                        hooks for player hits (playerRay / onPlayerHit / onFired / blocked), onTracer (word shots);
+                        triggers: mouse, F key, touchTrigger (fire button), releaseTriggers()
   player/avatar.js      createAvatar(color, outfit): the Blender character, or the fallback BoxAvatar (low-poly
                         soldier in the player's colour, walk/run, crouch, jump, aim; die / revive)
   player/modelAvatar.js ModelAvatar: chibi job hunter, AnimationMixer state machine over the Blender clips
@@ -413,6 +442,8 @@ src/
   audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
                         steps (own + other players'), reload, body hit, hurt
   ui/hud.js             crosshair hit markers (letter, player, headshot, kill), ammo, CV integrity, toasts
+  ui/touchControls.js   on-screen controls (touch mode): floating joystick, drag look, fire + aim, jump,
+                        crouch, reload, pause / scoreboard / mute; multi-touch by pointerId + pointer capture
   ui/combatHud.js       health bar, damage flash + direction, killcam text, spawn protection, kill feed, Tab scoreboard
   ui/minimap.js         page raster + player arrow + dots for other players in sight
   ui/nameTags.js        HTML name tags projected from 3D over other players
