@@ -546,3 +546,5 @@ html.touch input:not([type]), html.touch input[type="text"] { font-size: 16px; }
   .drop-icon { width: 30px; height: 30px; margin-bottom: 0; }
   .fineprint { margin-top: 10px; }
 }
+/* the kill feed stays clear of the crouch button: newest 3 lines only */
+html.touch #feed li:nth-last-child(n + 4) { display: none; }
