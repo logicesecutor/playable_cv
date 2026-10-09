@@ -2,6 +2,7 @@
 // far end (floor scorch, a puff on a player). Letter hits are not drawn here: they arrive from
 // the host as shared destruction (MP3).
 import * as THREE from "three";
+import { pickWord } from "./wordShots.js";
 
 export class RemoteShots {
   /**
@@ -36,16 +37,20 @@ export class RemoteShots {
     this._a = new THREE.Vector3();
     this._b = new THREE.Vector3();
     this.played = 0;
+    /** @type {import("./wordShots.js").WordShots|null} their shots print words too (main.js) */
+    this.words = null;
   }
 
   /**
-   * @param {number[]} s [ox,oy,oz, ex,ey,ez, kind]  kind 0 miss, 1 floor, 2 letter, 3 player
+   * @param {number[]} s [ox,oy,oz, ex,ey,ez, kind, seq]  kind 0 miss, 1 floor, 2 letter, 3 player
    * @param {THREE.Vector3} listener our camera position
+   * @param {number} [shooter] their player id (picks the same word they saw)
    */
-  play(s, listener) {
-    const [ox, oy, oz, ex, ey, ez, kind] = s;
+  play(s, listener, shooter = 0) {
+    const [ox, oy, oz, ex, ey, ez, kind, seq = 0] = s;
     this.played++;
     const from = this._a.set(ox, oy, oz), to = this._b.set(ex, ey, ez);
+    this.words?.shot(from, to, kind, pickWord(shooter, seq));
     // tracer
     const t = this.tracers[this.next];
     this.next = (this.next + 1) % this.tracers.length;

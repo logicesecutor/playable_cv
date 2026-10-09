@@ -41,6 +41,8 @@ export class Weapon {
     /** multiplayer: every shot, for the others' tracers: (from:Vector3, to:Vector3, kind) => void
      *  kind 0 miss, 1 floor, 2 letter, 3 player */
     this.onFired = null;
+    /** every shot, for the flying word (fx/wordShots.js): (from, to, kind) => void; after onFired */
+    this.onTracer = null;
     /** no shooting (dead) */
     this.blocked = false;
 
@@ -216,6 +218,7 @@ export class Weapon {
         : new THREE.Vector3(p.x + dx * w.range, p.y + dy * w.range, p.z + dz * w.range);
     this.tracer(muzzle, end);
     this.onFired?.(muzzle, end, kind);
+    this.onTracer?.(muzzle, end, kind);
     this.light.position.copy(muzzle);
 
     // feedback

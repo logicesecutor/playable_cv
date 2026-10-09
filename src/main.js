@@ -21,6 +21,7 @@ import { LetterNet } from "./net/letters.js";
 import { createPvp } from "./game/pvp.js";
 import { CombatHud } from "./ui/combatHud.js";
 import { RemoteShots } from "./fx/remoteShots.js";
+import { WordShots } from "./fx/wordShots.js";
 import { NameTags } from "./ui/nameTags.js";
 import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
@@ -259,6 +260,7 @@ function startGame(pdf, online = {}) {
     const b = e.box;
     const dist = Math.hypot((b.minX + b.maxX) / 2 - player.core.x, (b.minZ + b.maxZ) / 2 - player.core.z);
     player.addShake((0.04 + e.height * 0.03) * Math.max(0, 1 - dist / 40));
+    words.rejected(e); // REJECTED stamp (words is created below, before anything can break)
   };
 
   const pause = $("pause");
@@ -321,6 +323,11 @@ function startGame(pdf, online = {}) {
   let pvp = null;
   const chud = new CombatHud();
   const remoteShots = new RemoteShots(scene, sfx, destruction);
+  // the typewriter prints a word with every shot; REJECTED / FIRED! stamps (fx/wordShots.js)
+  const words = new WordShots(scene, camera, destruction, config);
+  remoteShots.words = words;
+  // our word uses the sequence number sync just gave this shot, so others see the same word
+  weapon.onTracer = (from, to, kind) => words.ownShot(from, to, kind, sync ? sync.room.selfId : 0, sync ? sync.shotSeq : undefined);
 
   const wireRoom = (r) => {
     sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
@@ -355,8 +362,13 @@ function startGame(pdf, online = {}) {
       room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
       target: config.net.killTarget,
       onStats: () => playersPanel.render(r.players, r.selfId, letters?.kills),
+      onDied: (v) => {
+        const pos = v === r.selfId ? player.core : sync?.remotes.get(v)?.pos;
+        if (pos) words.fired(pos.x, pos.y, pos.z);
+      },
       resetWorld: () => {
         destruction.resetAll();
+        words.reset();
         hud.integrity(destruction);
       },
       endView: (on) => {
@@ -507,6 +519,7 @@ function startGame(pdf, online = {}) {
     letters?.update(dt * 1000);
     if (playing) pvp?.update(dt);
     remoteShots.update(dt);
+    words.update(dt);
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);
@@ -557,7 +570,7 @@ function startGame(pdf, online = {}) {
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words,
     get room() {
       return room;
     },

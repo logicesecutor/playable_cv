@@ -95,6 +95,7 @@ export function createPvp(o) {
       },
       died(v, by, head) {
         chud.killFeed(info(by), info(v), head, self());
+        o.onDied?.(v, by); // FIRED! over the victim
         if (room.isHost) match.check(scoreRows);
         if (by === self() && v !== self()) hud.hitMarker("kill");
         if (v === self()) {
@@ -217,7 +218,7 @@ export function createPvp(o) {
     sync.queueShot(from, to, kind);
     combat.firedBy(self()); // shooting ends our own spawn protection
   };
-  sync.onRemoteShot = (id, shot) => shots.play(shot, camera.position);
+  sync.onRemoteShot = (id, shot) => shots.play(shot, camera.position, id);
   if (room.isHost) {
     sync.onState = (id, s) => combat.record(id, s.t, s.x, s.y, s.z, (s.f & FLAG.crouch) !== 0);
     sync.onFired = (id) => combat.firedBy(id);
