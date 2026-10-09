@@ -47,6 +47,7 @@ Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
 - `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
+- http://localhost:5173/viewer.html is the model viewer (dev only, see "Characters and the gun").
 - `npm run build` writes the static site to `dist/` (`BASE_PATH=/<repo>/` when it is served from a
   sub-path, as on GitHub Pages; the deploy workflow sets it).
 
@@ -68,8 +69,9 @@ and your browser rebuilds the same map from it. The name is remembered in `local
 
 **What works now (MP5)**: lobby + shared map (MP1), you see each other (MP2), letters break for
 everyone (MP3), you can shoot each other (MP4), and it's a real match that survives Wi-Fi blips (MP5,
-below). Every player is a low-poly soldier in their colour
-holding the same gun (walk/run, crouch, jump, aim pitch), moving smoothly even on a laggy connection.
+below). Every player is a chibi "job hunter" (corporate or software-engineer outfit, details in
+their colour) holding the typewriter blaster, animated with Blender clips (see "Characters and the
+gun" below), moving smoothly even on a laggy connection.
 Name tags and minimap dots (with a facing tick) appear only while that player is in your line of sight, not through letters. Positional
 footsteps, ping per guest in the player list (amber > 140 ms, red > 250 ms), "connection lost…" on a
 tag after 2.5 s without updates, and a soft push so players can't stand inside each other. Guests
@@ -218,6 +220,78 @@ lives in `src/config.js` → `net`.
 | "The download from the host stalled…" | No CV data for 20 s. The host's connection dropped: try the link again. (A slow download that keeps going never times out.) |
 | "Your browser built a different map…" | The guest's browser extracted a different number of pieces. Use the same browser as the host. |
 
+## Characters and the gun
+
+Players are chibi **job hunters** made in Blender, in two outfits on the same rig:
+
+| Outfit | Look (parts in the player's colour in bold) |
+|---|---|
+| Corporate | jacket, **tie**, **badge clip**, **shoe soles**, round glasses |
+| Software Engineer | **T-shirt** with a `</>` print, **beanie**, cargo shorts, sneakers |
+
+The host hands out outfits balanced-random (`pickOutfit` in `src/net/room.js`; kept on rejoin and
+rematch, `PlayerInfo.outfit`, `NET_VERSION` 5). Colours were already unique per room. Hitboxes follow
+the bigger chibi head: head sphere 0.29 m (was 0.17), body capsule tops 1.32 m standing / 0.72 m
+crouched (`src/net/hitbox.js`).
+
+Everyone holds the **typewriter blaster** (`public/models/gun.glb`): the glowing paper slot is the
+muzzle, the ink-ribbon cartridge is the magazine, the space bar takes the player's colour. In first
+person you see it with mitten hands; on reload it rolls over and the cartridge drops out.
+
+**Animation**: 9 clips made in Blender and shipped in both character files: Idle, Walk, Run, Crouch,
+CrouchWalk, Jump, Death (ragdoll-style slump) on the body, Fire and Reload on the gun. The avatar
+cross-fades between them from the network state (Walk / Run / CrouchWalk play at the real speed) and
+adds a procedural layer on top: aim pitch, head pitch, hands on the gun's grips, the cartridge swap,
+the gun flopping on death. Others see you reload (`FLAG.reload` in the player state) and every
+remote shot kicks their gun.
+
+**Look**: a cool rim light on the silhouettes (`config.characters.rim`, 0.35) and an optional 3-band
+toon ramp (`config.characters.toon`, off). For one page load: `?toon=1`, `?rim=0.5` (`?rim=0` = off).
+
+If a model file is missing or fails to load, the game keeps working with the old procedural box
+soldier and box gun. A map waits at most 8 s for the models.
+
+### Model viewer
+
+`npm run dev`, then open http://localhost:5173/viewer.html. It shows both outfits exactly as the game
+does (same avatar code fed the same network state) next to the old box soldier and the real hitboxes:
+pose buttons (idle, walk, sprint, crouch, crouch walk, jump, dead), aim pitch slider, force a clip,
+fire ×5, reload, accent colour picker, toon / rim switches, skeleton / wireframe, and a measure of the
+visual head against the head hitbox. **Reload models (R)** picks up a fresh export without reloading
+the page. In a hidden tab (no animation frames) call `step(1.2)` in the console to advance time.
+
+### Rebuilding the models from Blender
+
+The models are built entirely by Python scripts in `blender_src/scripts/`:
+
+| Script | Builds |
+|---|---|
+| `common.py` | shared helpers: palette texture (colour swatches), materials `Palette` / `Accent` (tinted per player) / `Glow`, `part()`, `join()`, `export_glb()`, `render_sheet()` |
+| `build_characters.py` | `public/models/player_corporate.glb` + `player_engineer.glb` (14-bone rig, calls `build_anims.py` for the clips) |
+| `build_anims.py` | the 9 animation clips, keyed by script on the rig |
+| `build_gun.py` | `public/models/gun.glb` (nodes `Gun`, `Magazine`, `Muzzle`, `Grip.R/L`, `FPHand.R/L`) |
+
+Each build exports the `.glb` straight into `public/models/` and renders a preview sheet into
+`blender_src/renders/`. Two ways to run them:
+
+- **Live**, in an open Blender with the MCP add-on: `import build_characters; build_characters.build()`
+  (or `build_gun.build()`), with `blender_src/scripts` on `sys.path`.
+- **Headless**:
+  ```bash
+  blender --background blender_src/characters.blend --python blender_src/scripts/build_characters.py
+  blender --background blender_src/characters.blend --python blender_src/scripts/build_gun.py
+  ```
+
+Then press **R** in the model viewer (or reload the game). `blender_src/` (scripts, `.blend` files,
+renders) is local-only and git-ignored; the exported `.glb` files in `public/models/` are committed.
+
+Conventions the game relies on: metres, Z up, models face Blender -Y (`src/assets/models.js` turns
+them to three.js -Z); one shared palette texture; the material named `Accent` is cloned and tinted
+per player. The rig has 14 bones (Root, Hips, Spine, Head, Aim, Weapon, Hand.R/L, Thigh/Shin/Foot.R/L),
+every bone points up in Blender so its rest rotation is the identity in three.js. GLTFLoader drops
+the dots from names (`Hand.R` → `HandR`): look nodes up through
+`THREE.PropertyBinding.sanitizeNodeName`.
+
 ## Debug the PDF extraction (Node)
 
 ```bash
@@ -270,7 +344,8 @@ src/
   main.js               upload / join screen -> loading -> game loop, host + guest wiring;
                         100 ms timer keeps the network running when a hidden tab gets no frames;
                         guest auto-rejoin after a drop, end-of-match camera flight to the top view
-  config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn)
+  config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
+                        characters: toon / rim)
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
   pdf/outlines.js       path commands -> polygons with holes (pure, no three.js)
   pdf/loadPdf.js        browser wiring for pdf.js + worker (from a File or raw bytes; keeps `pdf.bytes`)
@@ -280,9 +355,18 @@ src/
   world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
   player/playerCore.js  movement simulation: accel, jump, gravity, step-up (pure JS)
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag
-  player/weapon.js      view-model, firing, spread, recoil, reload, tracers, muzzle flash; buildGun();
+  player/weapon.js      view-model (typewriter via gunModel.js: restPos, roll-over + cartridge drop on reload,
+                        setAccent), firing, spread, recoil, reload, tracers, muzzle flash; buildGun() (box gun);
                         hooks for player hits (playerRay / onPlayerHit / onFired / blocked)
-  player/avatar.js      other players: low-poly soldier in their colour, walk/run, crouch, jump, aim; die / revive
+  player/avatar.js      createAvatar(color, outfit): the Blender character, or the fallback BoxAvatar (low-poly
+                        soldier in the player's colour, walk/run, crouch, jump, aim; die / revive)
+  player/modelAvatar.js ModelAvatar: chibi job hunter, AnimationMixer state machine over the Blender clips
+                        (cross-fades, speed-scaled locomotion) + procedural aim / head / hands / reload / death
+  player/gunModel.js    createGun({fp, accent}): typewriter blaster for the view-model (mitten hands) or the
+                        characters, box-gun fallback; muzzle, magazine, grips, setAccent
+  assets/models.js      preload public/models/*.glb, instantiate(name, {accent}) per-player copies (SkeletonUtils,
+                        tinted "Accent", turned to face -Z), rim light / toon ramp (`style`, ?toon= ?rim=)
+  dev/viewer.js         model viewer (viewer.html): poses, forced clips, fire / reload, hitboxes + head measure
   world/destruction.js  letter HP, hit effects + wobble, shattering, burning the ink off the paper;
                         remote hits, silent kills (late join), revive (refused prediction);
                         resetAll (rematch) from a clean raster copy (`pdf.rasterClean`)
@@ -304,10 +388,12 @@ src/
   net/ice.js            STUN + Metered TURN credentials (cached), ?relay= / ?turn=, routeOf (direct or relay)
   net/netsim.js         ?netsim= developer network simulator (lag, jitter, loss on what this tab sends)
   net/room.js           HostRoom / GuestRoom: hello/welcome, PDF transfer, player list, ping/pong, leave/kick;
-                        away players + rejoin by key, 10 s silence watchdogs, broker reconnect
+                        away players + rejoin by key, 10 s silence watchdogs, broker reconnect;
+                        outfits (OUTFITS, pickOutfit: balanced random)
   net/clock.js          ClockSync: guests estimate the host's clock (shared game time) from ping/pong
   net/snapshots.js      SnapshotBuffer: adaptive-delay interpolation / extrapolation, state wire format
-                        incl. shots fired (`x`, with sequence number) (pure JS)
+                        incl. shots fired (`x`, with sequence number), FLAG bits (crouch, grounded, sprint,
+                        fly, reload) (pure JS)
   net/sync.js           NetSync: send own state 20 Hz, host relay, avatars, tags, visibility, soft push;
                         shots in two states each (duplicates dropped), raycast against players as we see
                         them, minimap reveal of shooters
@@ -320,6 +406,10 @@ src/
   game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard;
                         match: end view, rematch spawns spread over the page
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
+public/models/          exported Blender models (committed): player_corporate.glb, player_engineer.glb, gun.glb
+viewer.html             model viewer page (dev, `npm run dev` → /viewer.html)
+blender_src/            LOCAL ONLY, git-ignored: .blend files, renders/, scripts/ (common.py, build_characters.py,
+                        build_anims.py, build_gun.py) that export into public/models/
 tools/extract-debug.mjs
 tools/sim-player.mjs
 tools/test-raycast.mjs

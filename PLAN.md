@@ -125,6 +125,22 @@ Each milestone ends with something runnable.
       restarted → new guest joins via the old link; a guest that never returns is removed after ~60 s;
       earlier milestones re-checked. **Still to do (Christian):** fill in the Metered relay key in
       `src/config.js`, push to deploy, and the real two-network test (PC + phone on mobile data).
+- [x] **Characters, gun & animation (P0–P3).** Models built by Python scripts in Blender
+      (`blender_src/scripts/`, local-only and git-ignored), exported to `public/models/*.glb` (committed).
+      **P0 pipeline:** one shared palette texture, materials `Palette` / `Accent` (tinted per player) /
+      `Glow`; `src/assets/models.js` preloads the models (a map waits ≤ 8 s), `instantiate()` gives
+      per-player copies facing three.js -Z, procedural fallback when a file is missing; dev model viewer
+      `viewer.html`. **P1 characters:** chibi job hunters, Corporate and Software Engineer outfits on one
+      14-bone rig, outfits assigned by the host balanced-random (`PlayerInfo.outfit`, `NET_VERSION` 5),
+      hitboxes resized (head 0.29 m, body tops 1.32 / 0.72 m). **P1.7 look:** rim light, optional toon
+      ramp (`config.characters`, `?toon=1` / `?rim=`). **P2 gun:** typewriter blaster (paper-slot muzzle,
+      ink-ribbon cartridge magazine, space bar in the player's colour, first-person mittens).
+      **P3 animation:** 9 Blender clips (Idle, Walk, Run, Crouch, CrouchWalk, Jump, Death, Fire, Reload)
+      on an AnimationMixer state machine with a procedural layer (aim, head, hands, reload, death);
+      `FLAG.reload` lets others see a reload. `test:ray`, `test:interp`, `sim:pvp`, `sim:match` and the
+      build still pass. Details in the README ("Characters and the gun").
+- [ ] **Word shots (next).** The typewriter fires words instead of tracers: flying "REJECTED" /
+      "FIRED!" words from the paper slot (`muzzle` in `gunModel.js`).
 
 ## Multiplayer architecture
 
@@ -136,7 +152,8 @@ Each milestone ends with something runnable.
   no retransmits) for player state and ping/pong.
 - **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list,
   validates letter hits (MP3), referees PvP (MP4) and the match (MP5). Star topology: guests only talk to the host.
-- **Messages** (JSON, `NET_VERSION` = 4). `rel`:
+- **Messages** (JSON, `NET_VERSION` = 5 since the characters: `PlayerInfo.outfit` in `players` /
+  `welcome`). `rel`:
   `hello {v,name,k,have}` (`k` = per-tab rejoin key, `have` = `{hash,count}` of a map the guest already
   has) → `welcome {you,players,map,pdf,world}` + PDF bytes (`pdf` = null and no bytes when `have`
   matches), or `reject {reason}` (version, full); `world` = `{letters, combat, match}`: `letters` =
@@ -159,7 +176,7 @@ Each milestone ends with something runnable.
   aw:[[key,id,value]…]}` and `match {s:"start", r, u, sp:[[id,x,z,yaw]…]}` (rematch, `u` = end of
   spawn protection).
   `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
-  state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly,
+  state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly/reload,
   ~110 bytes) plus, when we fired recently, `x:[[ox,oy,oz, ex,ey,ez, kind, seq]…]` (kind 0 miss,
   1 floor, 2 letter, 3 player). Since MP5 each shot rides in two consecutive states; the receiver drops
   a `seq` it has already seen, so one lost packet no longer hides a gunshot. Other fast types go to

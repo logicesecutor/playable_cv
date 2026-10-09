@@ -1,7 +1,11 @@
 // Model viewer (dev tool): http://localhost:5173/viewer.html
-// The Blender characters exactly as the game shows them (createAvatar + the same procedural
-// poses), next to the old box soldier and the real hitboxes. "measure" checks that the visual
-// head sits inside the head hitbox, standing and crouched.
+// The Blender characters exactly as the game shows them: createAvatar() fed the network state a
+// match would send (idle / walk / sprint / crouch / jump / dead), so the Blender clips and the
+// procedural layer play as in a game. Next to them: the old box soldier and the real hitboxes.
+// "measure" checks that the visual head sits inside the head hitbox, standing and crouched.
+// Also: force a body clip, fire ×5 / reload (gun clips), accent colour, toon / rim switches,
+// skeleton / wireframe, reload models (R) after a new export. step(seconds) in the console
+// advances time when the tab is hidden (no animation frames).
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { preloadModels, reloadModels, instantiate, getModel, style } from "../assets/models.js";

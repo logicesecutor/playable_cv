@@ -280,7 +280,7 @@ export class Weapon {
     );
 
     // reload: the ink-ribbon cartridge drops out, the left hand follows it down and slaps a new
-    // one in (procedural until the Phase 3 clips)
+    // one in (procedural: the Blender clips only animate the third-person characters)
     if (this.magRest) {
       const p = this.reloading > 0 ? 1 - this.reloading / this.w.reloadTime : 1;
       const out = p < 0.4 ? smooth(p / 0.4) : p < 0.6 ? 1 : 1 - smooth((p - 0.6) / 0.4);

@@ -4,7 +4,7 @@
 // velocity, crouch / grounded flags): walk + run cycle, crouch, jump pose, aim pitch.
 //
 // Proportions match the first-person player: eyes at 1.65 m standing and ~0.95 m crouched, body
-// radius 0.35 m, so what you see is what later hit detection (MP4) will use.
+// radius 0.35 m, as the hitboxes assume (net/hitbox.js, sized for the chibi characters since P1).
 import * as THREE from "three";
 import { buildGun } from "./weapon.js";
 import { FLAG } from "../net/snapshots.js";
