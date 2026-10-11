@@ -31,6 +31,7 @@ import { mapFingerprint } from "./net/mapHash.js";
 import { preloadModels } from "./assets/models.js";
 import { initTitles, playTitles } from "./ui/title.js";
 import { initLanding } from "./ui/landing.js";
+import { initHunters } from "./ui/hunters.js";
 import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl, rejoinKey } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
@@ -41,8 +42,9 @@ function show(name) {
   playTitles(screens[name]); // "Destroy Your" types out, CAREER is stamped (once per screen)
 }
 initTitles();
-// the front page: theme switch, shootable CV (ui/landing.js)
+// the front page: theme switch, shootable CV, job hunters (ui/landing.js, ui/hunters.js)
 const landing = initLanding({ onSample: () => startSample() });
+initHunters({ isActive: () => !screens.upload.hidden });
 
 {
   // graphics preset: phones and tablets get the cheaper one (config.graphics)
