@@ -5,3 +5,4 @@ debug/
 
 # Blender sources (.blend, build scripts, renders) stay local for now; exported .glb live in public/models
 blender_src/
+Claude outputs/front-page-concept.html
