@@ -89,6 +89,8 @@ function initTheme(button, reduce) {
       setTimeout(() => root.classList.remove("theming"), 400);
     }
     root.dataset.theme = theme;
+    // the browser chrome (mobile address bar) matches the page ground
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#09090b" : "#f3efe6");
     button.setAttribute("aria-label", theme === "dark" ? "Switch to bright theme" : "Switch to dark theme");
   };
   apply(saved || (mq?.matches ? "dark" : "paper"), false);
