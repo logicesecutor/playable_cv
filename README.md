@@ -10,7 +10,14 @@ out of the paper. You land in first person among the letters with a gun, and eve
 shot to pieces. It plays on desktop (mouse + keyboard) and on phones and tablets in landscape
 (touch controls, see [MOBILE.md](MOBILE.md)). See [PLAN.md](PLAN.md) for the roadmap.
 
-The first page and the join screen open with the animated title (`src/ui/title.js`): "Destroy Your"
+The first page is a scrolling front page: the drop zone and a "No CV handy? Use the sample" button
+at the top, next to a sample CV extruded in CSS 3D that you can shoot word by word, then a ticker of
+word shots, "Meet the job hunters" (the real in-game character in 3D: outfit, colour, animations),
+how it works, the game's own CV, multiplayer and controls. A nav button switches between two themes,
+Paper & ink (default) and the classic dark; the first visit follows the device, a click is remembered.
+Details in [docs/FRONT_PAGE.md](docs/FRONT_PAGE.md).
+
+The front page and the join screen open with the animated title (`src/ui/title.js`): "Destroy Your"
 types itself out, then a red rubber stamp CAREER slams down, the same stamp as the in-game
 REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5.0" tag comes from
 `package.json` (`version`, injected by `vite.config.js` as `__APP_VERSION__`): bump it there.
@@ -72,7 +79,8 @@ npm install
 npm run dev
 ```
 
-Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF).
+Vite opens http://localhost:5173. Pick `example_cv.pdf` (or any text-based PDF), or click "No CV
+handy? Use the sample".
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
@@ -400,9 +408,10 @@ is back after a rematch. Same `LAG=`, `JITTER=`, `SEED=`. Now: 21/21 checks pass
 
 ```
 src/
-  main.js               upload / join screen -> loading -> game loop, host + guest wiring;
+  main.js               front page (upload, sample CV) / join screen -> loading -> game loop, host + guest wiring;
                         100 ms timer keeps the network running when a hidden tab gets no frames;
                         guest auto-rejoin after a drop, end-of-match camera flight to the top view
+  landing.css           front page styles, scoped to `.landing`: Paper & ink and dark palettes (data-theme)
   config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
                         characters: toon / rim, touch controls, graphics presets low / high)
   input/touchMode.js    touch mode: decided once at load (primary pointer is a finger), ?touch=1/0, html.touch
@@ -453,6 +462,10 @@ src/
                         keep the old `playable-cv:` prefix so saved names / rejoins survive the rename
   ui/title.js           game title "Destroy Your Career" on every `.game-title` (typed + stamped with
                         `data-animate`, static with `small`), `{version}` tags from package.json, tab title
+  ui/landing.js         front page: theme switch (device, then localStorage "dyc-theme"), nav, sample button,
+                        shootable CSS 3D CV stage (word slips, shards, REJECTED, demo shots), ticker, reveals
+  ui/hunters.js         "Meet the job hunters": ModelAvatar preview, drag to turn, outfit, colour, poses, fire,
+                        reload, get fired, name tag; WebGL only near the viewport, renders only while visible
   net/signaling.js      PeerJS-protocol signaling client over WebSocket, ?broker= override, reusable token
   net/peerLink.js       one RTCPeerConnection: "rel" (reliable) + "fast" (unreliable) channels, chunked binary,
                         lastRecv (watchdogs), forced relay policy
@@ -478,6 +491,8 @@ src/
                         match: end view, rematch spawns spread over the page
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 public/models/          exported Blender models (committed): player_corporate.glb, player_engineer.glb, gun.glb
+public/example_cv.pdf   the front page's sample CV (copy of the root example_cv.pdf, shipped with the build)
+docs/FRONT_PAGE.md      front page: sections, themes and tokens, CV stage, job hunters, how to change
 viewer.html             model viewer page (dev, `npm run dev` → /viewer.html)
 blender_src/            LOCAL ONLY, git-ignored: .blend files, renders/, scripts/ (common.py, build_characters.py,
                         build_anims.py, build_gun.py) that export into public/models/
