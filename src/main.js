@@ -30,15 +30,19 @@ import { findSpawn } from "./world/layout.js";
 import { mapFingerprint } from "./net/mapHash.js";
 import { preloadModels } from "./assets/models.js";
 import { initTitles, playTitles } from "./ui/title.js";
+import { initLanding } from "./ui/landing.js";
 import { JoinScreen, InvitePanel, PlayersPanel, Feed, joinIdFromUrl, clearJoinFromUrl, rejoinKey } from "./ui/lobby.js";
 
 const $ = (id) => document.getElementById(id);
 const screens = { upload: $("upload-screen"), join: $("join-screen"), loading: $("loading-screen"), game: $("game-screen") };
 function show(name) {
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
+  landing.setActive(name === "upload"); // the front page's demo and 3D preview pause off screen
   playTitles(screens[name]); // "Destroy Your" types out, CAREER is stamped (once per screen)
 }
 initTitles();
+// the front page: theme switch, shootable CV (ui/landing.js)
+const landing = initLanding({ onSample: () => startSample() });
 
 {
   // graphics preset: phones and tablets get the cheaper one (config.graphics)
@@ -95,6 +99,19 @@ function fail(msg) {
   errorEl.textContent = msg;
   errorEl.hidden = false;
   show("upload");
+  errorEl.scrollIntoView({ block: "center" });
+}
+
+/** "No CV handy? Use the sample": the bundled example_cv.pdf (public/), same flow as a dropped file */
+async function startSample() {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}example_cv.pdf`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    start(new File([await res.blob()], "example_cv.pdf", { type: "application/pdf" }));
+  } catch (err) {
+    console.error(err);
+    fail("Couldn't load the sample CV. Drop your own PDF instead.");
+  }
 }
 
 // ------------------------------------------------------------------ step 1 (guest): opened an invite link
