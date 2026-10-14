@@ -18,6 +18,7 @@ original page becomes the minimap.
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
 | Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
 | Mobile | **Phones and tablets in landscape, on-screen controls.** Floating joystick with auto-sprint at the edge (roughly forward), drag to look, fire button that also aims with the same thumb, crouch on hold; fullscreen + landscape lock on Play where supported (Android yes, iPad fullscreen only, iPhone neither); automatic low graphics preset; no aim assist for now. Targets Android Chrome and tablets. Full plan in [MOBILE.md](MOBILE.md). |
+| Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). **Shred sequence: visual and local only** for now (O key, `?shred=N`), `office.shred` is the hook for a shrinking map. `?office=0` = the old game exactly. Details in [docs/OFFICE.md](docs/OFFICE.md). |
 
 ## How the PDF becomes geometry
 
@@ -167,6 +168,29 @@ Each milestone ends with something runnable.
       background, leaving fullscreen); HUD inside the safe areas; "low" graphics preset on touch
       (`?gfx=`). All sims pass, desktop unchanged in Chromium, emulated Pixel 7 multi-touch checked.
       **Still to do (Christian):** the real-device checklist in [MOBILE.md](MOBILE.md).
+- [x] **Office environment (O1–O8)**, branch `feature/office-environment`. **O1** real-scale placeholder
+      office around the CV, inverse-anchor placement (`src/world/office.js`, `debugTilt`). **O2** Blender
+      blockout exported to `public/models/office.glb` (placeholder kept as the fallback). **O2b** the
+      letter tray's walls stop bullets (`CollisionWorld.walls`, weapon result `"wall"`, sparks; a plain
+      shot on the network). **O3** furnished open-plan office, Cycles-baked lightmaps (`bake_office.py`),
+      `Baked_*` materials unlit in the game. **O4** the giant woman (`build_woman.py`): one skinned mesh,
+      50-bone rig, office-lit shader (`config.office.shade`). **O5** her 7 clips (`anim_woman.py`: Type,
+      Mouse, Sip, Stretch, Glance, Clock, Shred; NLA tracks at 30 fps), idle scheduler
+      (`config.office.idle`, `idleGap`), the shred sequence (O key, `?shred=N`, `office.shred` =
+      `{active, feeding, progress, cutZ, plane}`, page clipped by the shredder's plane, paper flecks +
+      rumble): visual and local only. **O6** procedural positional soundscape
+      (`src/audio/officeAmbience.js`, `?ambience=0`, `config.office.audio.samples` hook). **O7** models
+      preload per file: the landing preview waits only for `CHARACTER_MODELS`, never for `office.glb`.
+      **Validation:** `sim`, `test:ray` (+ 2,000 wall rays, 0 errors), `sim:pvp`, `sim:match`,
+      `test:interp`, `sim:net` and the build pass; `?office=0` is the old gameplay path byte for byte.
+      Cost: +7 draw calls (283 → 290), ≈ +27k triangles (573k → 600k), +4 textures (~11 MB GPU),
+      `office.update` 0.1–0.3 ms/frame, GLB 2.2 MB (headless SwiftShader only, no real-GPU fps yet).
+      Two-window multiplayer: same map hash, office on both, destruction and kills synced, host shots hit
+      tray walls, shred on the host only. Transient guest "Connection lost" banners (recovered in ~10 s)
+      came from two SwiftShader windows starving one CPU (also seen with the office off, more often with
+      it on). **O8** docs: [docs/OFFICE.md](docs/OFFICE.md), README "The office".
+      **Still to do:** real-GPU / real-device fps, mobile check, a human listening pass on the audio
+      (chatter), network-sync the shred, the shrinking map itself.
 
 ## Multiplayer architecture
 
@@ -279,6 +303,8 @@ Each milestone ends with something runnable.
 - Multi-page PDFs: pages side by side, or one level per page?
 - Single player win condition (e.g. "destroy the whole Skills section"), or pure sandbox? (Multiplayer
   has deathmatch to 10 since MP5.)
+- The shrinking map: what starts the shred in a match (a timer, the leader's score, letters left), and
+  are players caught behind the cut line killed or pushed? Plan in [docs/OFFICE.md](docs/OFFICE.md).
 
 ## Run it
 
@@ -295,4 +321,5 @@ Node 18+ is needed. Node-only debug tools (Node 22.13+):
 destruction, `npm run sim:pvp` player vs player and `npm run sim:match` the match flow (`LAG=`, `JITTER=`, `SEED=`);
 `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser, `?target=3` shortens matches,
 `?relay=1` / `?turn=<app>:<key>` test the TURN relay, `?touch=1` / `?touch=0` force the touch controls,
-`?gfx=low` / `?gfx=high` pick the graphics preset. `npm run build` builds the site (GitHub Pages: see the README).
+`?gfx=low` / `?gfx=high` pick the graphics preset, `?office=0` / `?ambience=0` turn off the office / its sound,
+`?shred=N` starts the shred sequence N s after the intro (also the O key). `npm run build` builds the site (GitHub Pages: see the README).

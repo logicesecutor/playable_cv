@@ -7,8 +7,9 @@ Formerly "Playable CV": the GitHub repo (`logicesecutor/playable_cv`) and the Pa
 
 Drop a PDF CV into the page and it becomes a 3D map: every letter, icon and rule is extruded
 out of the paper. You land in first person among the letters with a gun, and every letter can be
-shot to pieces. It plays on desktop (mouse + keyboard) and on phones and tablets in landscape
-(touch controls, see [MOBILE.md](MOBILE.md)). See [PLAN.md](PLAN.md) for the roadmap.
+shot to pieces. The page lies in a letter tray on the desk of a giant office worker, in a real-scale
+office around the map (see "The office"). It plays on desktop (mouse + keyboard) and on phones and
+tablets in landscape (touch controls, see [MOBILE.md](MOBILE.md)). See [PLAN.md](PLAN.md) for the roadmap.
 
 The first page is a scrolling front page: the drop zone and a "No CV handy? Use the sample" button
 at the top, next to a sample CV extruded in CSS 3D that you can shoot word by word, then a ticker of
@@ -39,6 +40,7 @@ REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5
 | Tab (hold) | scoreboard (multiplayer) |
 | M | mute |
 | I | replay the intro |
+| O | she shreds the CV / puts it back (dev / demo, visual only, see "The office") |
 | Esc | pause |
 
 ### Phones and tablets (touch)
@@ -84,7 +86,7 @@ handy? Use the sample".
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction) and `pvp` (combat referee, killcam, scoreboard, `match`).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction), `pvp` (combat referee, killcam, scoreboard, `match`), `office` (the office around the page, `toggleShred()`) and `ambience` (its soundscape).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 - http://localhost:5173/viewer.html is the model viewer (dev only, see "Characters and the gun").
 - On a phone or tablet: `npm run dev -- --host` and open the LAN address Vite prints
@@ -359,6 +361,50 @@ every bone points up in Blender so its rest rotation is the identity in three.js
 the dots from names (`Hand.R` → `HandR`): look nodes up through
 `THREE.PropertyBinding.sanitizeNodeName`.
 
+## The office
+
+The CV lies in a black letter tray on the desk of a giant office worker, in an open-plan office
+modelled at real size (`src/world/office.js`, `public/models/office.glb`). One real metre is ~850
+game metres, so the tray walls stand ~52 m tall around the page and the ceiling is ~1.7 km up. She
+types, and every 5–12 s glances down at the CV, clicks the mouse, sips her coffee, looks at the
+clock or stretches. You hear the room around you: ventilation and hum, her keyboard, coworkers
+typing, phones, the copier and printer, footsteps, distant chatter
+(`src/audio/officeAmbience.js`, all synthesised, positional).
+
+It is **environment only**: the page never moves (when she lifts the CV the office swings around the
+players instead), and movement, hits and the network are as before. The one exception: the tray's
+walls **stop bullets** (sparks, result `"wall"`); players can't reach them anyway.
+
+**The shred sequence** (dev / demo for now): press **O** after the intro, or open the game with
+`?shred=N` (N seconds after the intro). She picks the CV up, reads it, shakes her head and feeds it
+into the shredder; the page disappears into the slot over 45 s (`config.office.shredSeconds`) with
+paper flecks and a rumble. **O** again puts it back. It is visual only and local to your browser (not
+networked); it is the hook for a future shrinking map.
+
+| URL option | |
+|---|---|
+| `?office=0` | no office: the old dark backdrop and exactly the old gameplay (no tray walls) |
+| `?ambience=0` | office without its soundscape |
+| `?shred=N` | start the shred sequence N s after the intro |
+
+Tunables live in `src/config.js` → `office` (fog colour, lightmap brightness, her lighting, idle
+weights, shred speed, audio volume / chatter / optional recordings in `audio.samples`).
+
+**Rebuilding `office.glb`** (scripts in the git-ignored `blender_src/scripts/`: `build_office.py`
+geometry, `bake_office.py` Cycles lightmaps + export, `build_woman.py` her rig, `anim_woman.py` her
+clips), from the repo root, with the snap's Blender binary:
+
+```bash
+# everything: geometry, baked lighting, her and her clips, export (~3 min on CPU)
+/snap/blender/current/blender --background --factory-startup --python blender_src/scripts/bake_office.py
+# only her and her clips, no rebake (uses the blender_src/office.blend the bake saved)
+/snap/blender/current/blender --background blender_src/office.blend --python blender_src/scripts/build_woman.py
+```
+
+Then reload the game and commit `public/models/office.glb`. If the file is missing the game uses a
+procedural placeholder office. Architecture, placement maths, the shred API, the soundscape, the
+asset pipeline, test results and the plan for the shrinking map: [docs/OFFICE.md](docs/OFFICE.md).
+
 ## Debug the PDF extraction (Node)
 
 ```bash
@@ -378,7 +424,8 @@ A bot runs, turns and jumps around the CV for 5 simulated minutes; the script fa
 into a letter or leaves the page. Use `SEED=7 npm run sim` for a different run.
 
 `npm run test:ray` fires 3,000 random rays and checks the grid raycast against a brute-force test of
-every letter.
+every letter, then 2,000 rays from the page against a ring of bullet walls (like the letter tray's):
+each must stop exactly at the wall it crosses.
 
 `npm run test:interp` checks remote-player smoothing (`src/net/snapshots.js`): a fake player moves for
 60 s, its state goes through 5 simulated networks (LAN, good internet, bad wifi, awful mobile, stalls)
@@ -410,10 +457,12 @@ is back after a rematch. Same `LAG=`, `JITTER=`, `SEED=`. Now: 21/21 checks pass
 src/
   main.js               front page (upload, sample CV) / join screen -> loading -> game loop, host + guest wiring;
                         100 ms timer keeps the network running when a hidden tab gets no frames;
-                        guest auto-rejoin after a drop, end-of-match camera flight to the top view
+                        guest auto-rejoin after a drop, end-of-match camera flight to the top view;
+                        office wiring (?office= ?ambience= ?shred=, O key, tray walls, shredFx)
   landing.css           front page styles, scoped to `.landing`: Paper & ink and dark palettes (data-theme)
   config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
-                        characters: toon / rim, touch controls, graphics presets low / high)
+                        characters: toon / rim, touch controls, graphics presets low / high,
+                        office: fog, lighting, idle weights, shredSeconds, audio)
   input/touchMode.js    touch mode: decided once at load (primary pointer is a finger), ?touch=1/0, html.touch
   input/fullscreen.js   fullscreen + landscape lock on Play (best effort), fullscreen change events
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
@@ -421,7 +470,10 @@ src/
   pdf/loadPdf.js        browser wiring for pdf.js + worker (from a File or raw bytes; keeps `pdf.bytes`)
   world/buildWorld.js   instanced extruded letters, rule walls, paper floor, lights, spawn point
   world/intro.js        top view -> letters rise -> camera swoop
-  world/collision.js    spatial grid + circle-vs-letter-outline collision (pure JS)
+  world/collision.js    spatial grid + circle-vs-letter-outline collision; `walls`: bullet-only quads (tray) (pure JS)
+  world/office.js       the office around the page: office.glb (or placeholder) placed by the CV_Anchor inverse,
+                        baked / office-lit materials, her clips + idle scheduler, shred sequence (office.shred,
+                        page clipping), trayWalls()
   world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
   player/playerCore.js  movement simulation: accel, jump, gravity, step-up, analog throttle (pure JS)
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag;
@@ -429,6 +481,7 @@ src/
   player/weapon.js      view-model (typewriter via gunModel.js: restPos, roll-over + cartridge drop on reload,
                         setAccent), firing, spread, recoil, reload, tracers, muzzle flash; buildGun() (box gun);
                         hooks for player hits (playerRay / onPlayerHit / onFired / blocked), onTracer (word shots);
+                        a tray-wall hit is result "wall";
                         triggers: mouse, F key, touchTrigger (fire button), releaseTriggers()
   player/avatar.js      createAvatar(color, outfit): the Blender character, or the fallback BoxAvatar (low-poly
                         soldier in the player's colour, walk/run, crouch, jump, aim; die / revive)
@@ -436,12 +489,13 @@ src/
                         (cross-fades, speed-scaled locomotion) + procedural aim / head / hands / reload / death
   player/gunModel.js    createGun({fp, accent}): typewriter blaster for the view-model (mitten hands) or the
                         characters, box-gun fallback; muzzle, magazine, grips, setAccent
-  assets/models.js      preload public/models/*.glb, instantiate(name, {accent}) per-player copies (SkeletonUtils,
+  assets/models.js      preloadModels(names) per file (CHARACTER_MODELS for the previews, everything incl. the
+                        office for the game), instantiate(name, {accent}) per-player copies (SkeletonUtils,
                         tinted "Accent", turned to face -Z), rim light / toon ramp (`style`, ?toon= ?rim=)
   dev/viewer.js         model viewer (viewer.html): poses, forced clips, fire / reload, hitboxes + head measure
   world/destruction.js  letter HP, hit effects + wobble, shattering, burning the ink off the paper;
                         remote hits, silent kills (late join), revive (refused prediction);
-                        resetAll (rematch) from a clean raster copy (`pdf.rasterClean`)
+                        resetAll (rematch) from a clean raster copy (`pdf.rasterClean`); wallHit (tray walls)
   fx/debris.js          instanced shards with gravity, spin, bounce on paper and letters; clear()
   fx/particles.js       sparks and dust (soft points, one draw call each)
   fx/remoteShots.js     other players' shots: tracer, muzzle flash, positional gunshot, floor scorch, player puff,
@@ -450,6 +504,8 @@ src/
                         REJECTED stamp over destroyed letters (printed on the paper), FIRED! over kills; reset()
   audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
                         steps (own + other players'), reload, body hit, hurt
+  audio/officeAmbience.js  the office soundscape, procedural + positional: room tone, clock, her (synced to her
+                        clips), coworkers, phones, copier, printer, footsteps, chatter, shredder; audio.samples hook
   ui/hud.js             crosshair hit markers (letter, player, headshot, kill), ammo, CV integrity, toasts
   ui/touchControls.js   on-screen controls (touch mode): floating joystick, drag look, fire + aim, jump,
                         crouch, reload, pause / scoreboard / mute; multi-touch by pointerId + pointer capture
@@ -490,15 +546,19 @@ src/
   game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard;
                         match: end view, rematch spawns spread over the page
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
-public/models/          exported Blender models (committed): player_corporate.glb, player_engineer.glb, gun.glb
+public/models/          exported Blender models (committed): player_corporate.glb, player_engineer.glb, gun.glb,
+                        office.glb (baked office + the woman + her 7 clips, 2.2 MB)
 public/example_cv.pdf   the front page's sample CV (copy of the root example_cv.pdf, shipped with the build)
 docs/FRONT_PAGE.md      front page: sections, themes and tokens, CV stage, job hunters, how to change
+docs/OFFICE.md          the office: placement maths, materials, her animation, shred API, tray walls, soundscape,
+                        Blender pipeline, config, test results, shrinking-map plan
 viewer.html             model viewer page (dev, `npm run dev` → /viewer.html)
-blender_src/            LOCAL ONLY, git-ignored: .blend files, renders/, scripts/ (common.py, build_characters.py,
-                        build_anims.py, build_gun.py) that export into public/models/
+blender_src/            LOCAL ONLY, git-ignored: .blend files, bake/, renders/, scripts/ (common.py, build_characters.py,
+                        build_anims.py, build_gun.py; build_office.py, bake_office.py, build_woman.py,
+                        anim_woman.py for office.glb) that export into public/models/
 tools/extract-debug.mjs
 tools/sim-player.mjs
-tools/test-raycast.mjs
+tools/test-raycast.mjs  grid raycast vs brute force, plus bullet walls (`npm run test:ray`)
 tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
 tools/sim-net.mjs       shared destruction: 5 players on a laggy fake link must end with the host's map (`npm run sim:net`)
 tools/sim-pvp.mjs       PvP: host + 5 guests fight 90 s on a laggy fake link, scores agree, fakes refused (`npm run sim:pvp`)
