@@ -32,7 +32,7 @@ export class Weapon {
     this.swayY = 0;
     this.shots = 0;
     this.hits = 0;
-    /** (result: "hit" | "kill" | "floor" | "miss" | "player" | "head") => void */
+    /** (result: "hit" | "kill" | "floor" | "wall" | "miss" | "player" | "head") => void */
     this.onShot = null;
     this.onAmmo = null;
     /** multiplayer: (ox,oy,oz, dx,dy,dz, maxT) => nearest player hit {t,id,head,x,y,z} | null */
@@ -207,6 +207,10 @@ export class Weapon {
       }
       this.sfx.bodyHit(ph, ph.head);
       this.onPlayerHit?.(ph, { x: dx, y: dy, z: dz });
+    } else if (hit?.wall) {
+      // a wall of the letter tray around the page: sparks here; others see the tracer end at it
+      result = "wall";
+      this.destruction.wallHit(hit);
     } else if (hit) {
       result = this.destruction.bullet(hit, { x: dx, y: dy, z: dz });
       kind = result === "floor" ? 1 : 2;

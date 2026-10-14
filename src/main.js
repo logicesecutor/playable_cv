@@ -248,6 +248,7 @@ function startGame(pdf, online = {}) {
 
   // ---- simulation + effects
   const collision = new CollisionWorld(world.entities, world.size);
+  if (office) collision.walls = office.trayWalls(); // the tray's walls stop bullets (movement stays on the page)
   const player = new PlayerController(camera, canvas, collision, config, { touch: touchMode });
   const debris = new Debris(collision, gfx.debris);
   const sparks = new ParticleSystem(Math.round(1500 * gfx.particles), { additive: true, gravity: 14, drag: 1.5 });

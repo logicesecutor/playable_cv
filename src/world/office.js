@@ -29,7 +29,10 @@ export const REAL_M_PER_PT = 0.0254 / 72;
 // placeholder layout (real metres, office Y up). The desk is centred on the origin, the woman
 // sits on +Z facing -Z (towards her monitor), the letter trays stand on the desk to her right.
 const DESK = { w: 1.6, d: 0.8, top: 0.74, thick: 0.03 };
-const TRAY = { inW: 0.235, inD: 0.32, h: 0.065, wall: 0.003, frontH: 0.024 };
+// the letter tray: keep in step with TRAY in blender_src/scripts/build_office.py
+// (corner = height of the front corner tabs, lip = the low front lip between them, slope = the
+// part of the depth, from the back, where the sides are still full height)
+const TRAY = { inW: 0.235, inD: 0.32, h: 0.065, wall: 0.003, frontH: 0.024, corner: 0.03, lip: 0.012, tab: 0.045, slope: 0.42 };
 const TRAY_AT = { x: 0.55, z: 0.0 };
 const TRAY_FLOOR = DESK.top + TRAY.h + TRAY.wall; // top surface of the upper tray's floor
 const PAPER_LIFT = 0.0003; // the page lies on the tray floor (= the old 0.25 m "desk" gap in game units)
@@ -62,6 +65,34 @@ export class Office {
     this._m = new THREE.Matrix4();
     this._s = new THREE.Matrix4();
     this.place();
+  }
+
+  /**
+   * The inner faces of the top tray's walls as bullet-stopping quads for CollisionWorld.walls,
+   * in game metres. The page lies centred in the tray; heights are measured from the paper.
+   * Built from the tray's real dimensions (not from the loaded model), so every player gets the
+   * same walls even if office.glb failed to load.
+   */
+  trayWalls() {
+    const T = TRAY, k = this.k;
+    const lift = T.wall + PAPER_LIFT; // paper above the tray level's base
+    const full = (T.h - lift) * k, corner = (T.corner - lift) * k, lip = (T.lip - lift) * k;
+    const hx = (T.inW / 2) * k, hz = (T.inD / 2) * k;
+    const { x: cx, z: cz } = this.pageCenter;
+    const x0 = cx - hx, x1 = cx + hx, zb = cz - hz, zf = cz + hz; // back = page top (-Z), front = page bottom
+    const zs = zb + T.slope * 2 * hz; // sides start sloping down here
+    const zc = zf - 0.03 * k; // ...and reach the corner height here
+    const tab = T.tab * k;
+    const walls = [{ ax: x0, az: zb, bx: x1, bz: zb, h0: full, h1: full }]; // back
+    for (const x of [x0, x1]) {
+      walls.push({ ax: x, az: zb, bx: x, bz: zs, h0: full, h1: full });
+      walls.push({ ax: x, az: zs, bx: x, bz: zc, h0: full, h1: corner });
+      walls.push({ ax: x, az: zc, bx: x, bz: zf, h0: corner, h1: corner });
+    }
+    walls.push({ ax: x0, az: zf, bx: x0 + tab, bz: zf, h0: corner, h1: corner }); // front tabs
+    walls.push({ ax: x1 - tab, az: zf, bx: x1, bz: zf, h0: corner, h1: corner });
+    walls.push({ ax: x0 + tab, az: zf, bx: x1 - tab, bz: zf, h0: lip, h1: lip }); // the lip
+    return walls;
   }
 
   /** environment time step (animations later); keeps the office locked to the anchor */
