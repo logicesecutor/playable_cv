@@ -589,7 +589,7 @@ function startGame(pdf, online = {}) {
     if (playing) pvp?.update(dt);
     remoteShots.update(dt);
     words.update(dt);
-    office?.update(dt);
+    office?.update(dt, camera);
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);

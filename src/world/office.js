@@ -31,7 +31,7 @@ import { getModel } from "../assets/models.js";
  * - anything else (the woman's block-out): self-lit, see buildPlaceholder()
  * Office materials ignore the fog and the tone mapping (the bake already is the final look).
  */
-function officeMaterial(m, o) {
+function officeMaterial(m, o, shade) {
   const k = o?.brightness ?? 1;
   if (m.name.startsWith("Baked_") && m.map) {
     return new THREE.MeshBasicMaterial({ name: m.name, map: m.map, color: new THREE.Color(k, k, k), fog: false, toneMapped: false });
@@ -40,11 +40,45 @@ function officeMaterial(m, o) {
     const c = m.emissive.clone().multiplyScalar(Math.min(1, m.emissiveIntensity || 1));
     return new THREE.MeshBasicMaterial({ name: m.name, color: c.lerp(new THREE.Color(1, 1, 1), 0.15), fog: false, toneMapped: false });
   }
+  return shade ? officeLit(m, shade) : selfLit(m);
+}
+
+/** a stand-in look for the placeholder: half the colour as emission */
+function selfLit(m) {
   const c = m.clone();
   c.fog = false;
   c.emissive = c.color.clone().multiplyScalar(0.5);
   c.emissiveIntensity = 1;
   return c;
+}
+
+/**
+ * Lit by the OFFICE, not by the game's lights (those are aimed at the page): a hemisphere light
+ * (ceiling above, carpet below) plus a soft key from the panels in front of her, both given in the
+ * office's own frame and passed to the shader in view space every frame (Office.update), so she
+ * stays lit like the baked room however the office swings. A rim like the players' (models.js).
+ * Lambert keeps the skinning; its own lighting is replaced before output.
+ */
+function officeLit(m, shade) {
+  const mat = new THREE.MeshLambertMaterial({ name: m.name, color: m.color.clone(), vertexColors: m.vertexColors, side: m.side, fog: false });
+  mat.toneMapped = false; // like the bake: final colours
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, shade.uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uUpView, uKeyView, uSky, uGround;\nuniform float uKey, uRim;")
+      .replace(
+        "#include <opaque_fragment>",
+        `{
+          vec3 n = normalize(normal);
+          vec3 light = mix(uGround, uSky, dot(n, uUpView) * 0.5 + 0.5) + uKey * max(dot(n, uKeyView), 0.0) * uSky;
+          float rimF = pow(1.0 - saturate(dot(n, normalize(vViewPosition))), 3.0);
+          outgoingLight = diffuseColor.rgb * light + uRim * rimF * vec3(0.95, 0.93, 0.88);
+        }
+        #include <opaque_fragment>`,
+      );
+  };
+  mat.customProgramCacheKey = () => "pcv-office-lit";
+  return mat;
 }
 
 /** one PDF point in real metres */
@@ -79,6 +113,19 @@ export class Office {
     this.root.add(this.content);
 
     this.materials = [];
+    // office-space lighting for what isn't baked (the woman): see officeLit()
+    const s = cfg.office.shade || {};
+    this.shade = {
+      uniforms: {
+        uUpView: { value: new THREE.Vector3(0, 1, 0) },
+        uKeyView: { value: new THREE.Vector3(0, 1, 0) },
+        uSky: { value: new THREE.Color(s.sky ?? 0xfff6ea) },
+        uGround: { value: new THREE.Color(s.ground ?? 0x6c6c74) },
+        uKey: { value: s.key ?? 0.3 },
+        uRim: { value: s.rim ?? 0.12 },
+      },
+      key: new THREE.Vector3(...(s.keyDir ?? [0.15, 1, -0.45])).normalize(), // office frame: up, towards her monitor
+    };
     this.anchor = this.loadModel() || this.buildPlaceholder();
     this.anchorRest = this.anchor.matrix.clone();
 
@@ -119,9 +166,21 @@ export class Office {
     return walls;
   }
 
-  /** environment time step (animations later); keeps the office locked to the anchor */
-  update(dt) {
+  /**
+   * Environment time step (animations later); keeps the office locked to the anchor and points
+   * the office-space lights for the unbaked parts.
+   * @param {number} dt
+   * @param {THREE.Camera} [camera]
+   */
+  update(dt, camera) {
     this.place();
+    if (camera) {
+      const u = this.shade.uniforms;
+      this.root.updateMatrixWorld();
+      const view = camera.matrixWorldInverse;
+      u.uUpView.value.set(0, 1, 0).transformDirection(this.root.matrixWorld).transformDirection(view);
+      u.uKeyView.value.copy(this.shade.key).transformDirection(this.root.matrixWorld).transformDirection(view);
+    }
   }
 
   /** root.matrix = T(page centre) · S(K) · inverse(anchor relative to the office content) */
@@ -173,12 +232,13 @@ export class Office {
     const own = new Map(); // one copy per source material (the cached glTF stays untouched)
     model.traverse((o) => {
       if (!o.isMesh) return;
+      if (o.isSkinnedMesh) o.frustumCulled = false; // her bounds come from the rest pose; she moves
       o.castShadow = false; // the sun's shadow map only covers the page
       o.receiveShadow = false;
       o.material = [o.material].flat().map((m) => {
         let c = own.get(m);
         if (!c) {
-          c = officeMaterial(m, this.cfg.office);
+          c = officeMaterial(m, this.cfg.office, this.shade);
           own.set(m, c);
           this.materials.push(c);
         }

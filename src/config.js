@@ -92,6 +92,8 @@ export const config = {
     background: 0xcfc8b6, // behind everything, in case a gap shows
     fogColor: 0xb7b0a0, // distant letters fade into the office's beige instead of black (same distances)
     brightness: 1, // multiplies the baked office lighting (office.glb's Baked_* lightmaps)
+    // light for what isn't baked (the woman): office-frame hemisphere + soft key, see world/office.js
+    shade: { sky: 0xfff6ea, ground: 0x6c6c74, key: 0.3, keyDir: [0.15, 1, -0.45], rim: 0.12 },
   },
 
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
