@@ -100,6 +100,10 @@ export const config = {
     // the shred sequence (dev: O key / ?shred=N): seconds the shredder takes to eat the whole page
     // once she has fed it in. Visual only for now (the shrinking-map mechanic will use office.shred)
     shredSeconds: 45,
+    // the soundscape (audio/officeAmbience.js), all synthesised; ?ambience=0 turns it off.
+    // samples: optional recordings (paths under public/) replacing a synthesised sound, keys:
+    // roomtone, phone, copier, printer, chatter, shredder, typing. e.g. { phone: "sounds/phone.ogg" }
+    audio: { volume: 0.55, chatter: true, voices: 3, samples: {} },
   },
 
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)

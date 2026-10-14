@@ -296,6 +296,12 @@ export class Office {
     this.cvInTray = !this.shredding;
   }
 
+  /** what she's doing, for the soundscape (audio/officeAmbience.js): {name, time} of her clip */
+  clipState() {
+    const a = this.current;
+    return a ? { name: a.getClip().name, time: a.time } : null;
+  }
+
   /** dev / demo: she picks the CV up and shreds it (O key, ?shred=N). Visual only. */
   startShred() {
     if (!this.actions?.Shred || !this.cvPath || this.shredding) return false;

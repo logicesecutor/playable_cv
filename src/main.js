@@ -6,6 +6,7 @@ import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
 import { Office } from "./world/office.js";
+import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
 import { Minimap } from "./ui/minimap.js";
@@ -236,6 +237,8 @@ function startGame(pdf, online = {}) {
     camera.far = config.office.far;
     renderer.localClippingEnabled = true; // the shredder's cut (visual only, office.setPageClip)
   }
+  // the office's soundscape (starts with the audio, after the first click; ?ambience=0 = off)
+  const ambience = office && new URLSearchParams(location.search).get("ambience") !== "0" ? new OfficeAmbience(sfx, office, config) : null;
   // dev / demo: ?shred=N -> she shreds the CV N seconds after the intro (also the O key)
   const shredParam = new URLSearchParams(location.search).get("shred");
   const shredAfter = office && shredParam !== null ? Number(shredParam) : NaN;
@@ -618,6 +621,7 @@ function startGame(pdf, online = {}) {
     if (office) {
       if (shredTimer >= 0 && playing && (shredTimer -= dt) < 0) office.startShred();
       office.update(dt, camera);
+      ambience?.update(dt);
       collision.walls = office.cvInTray ? trayWalls : NO_WALLS;
       shredFx(dt, playing);
     }
@@ -670,13 +674,14 @@ function startGame(pdf, online = {}) {
       offFullscreen();
       player.dispose();
       weapon.dispose();
+      ambience?.dispose();
       office?.dispose();
       renderer.dispose();
     },
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office, ambience, sfx,
     get room() {
       return room;
     },
