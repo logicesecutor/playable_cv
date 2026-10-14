@@ -16,9 +16,12 @@
 // So when the giant hand lifts the CV (the anchor is animated), the players stay put on the page
 // and the whole office swings around them. Gameplay never notices.
 //
-// Until the Blender model exists (public/models/office.glb, a later step) a procedural placeholder
-// with the same layout and real dimensions is used, like the box avatar / box gun fallbacks.
+// The model is public/models/office.glb (blender_src/scripts/build_office.py), loaded with the
+// other models at page load. If it is missing, a procedural placeholder with the same layout and
+// real dimensions is used instead, like the box avatar / box gun fallbacks.
 import * as THREE from "three";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { getModel } from "../assets/models.js";
 
 /** one PDF point in real metres */
 export const REAL_M_PER_PT = 0.0254 / 72;
@@ -49,7 +52,7 @@ export class Office {
     this.root.add(this.content);
 
     this.materials = [];
-    this.anchor = this.buildPlaceholder();
+    this.anchor = this.loadModel() || this.buildPlaceholder();
     this.anchorRest = this.anchor.matrix.clone();
 
     // the old dark plane around the page would hide the tray floor (it sits 0.25 m below the paper)
@@ -100,7 +103,44 @@ export class Office {
     if (desk) desk.visible = true;
   }
 
-  // ---------------------------------------------------------------- placeholder (until office.glb)
+  // ---------------------------------------------------------------- the Blender office
+
+  /** @returns {THREE.Object3D | null} the CV anchor, or null if office.glb isn't available */
+  loadModel() {
+    const gltf = getModel("office");
+    if (!gltf) return null;
+    const model = cloneSkinned(gltf.scene);
+    const anchor = model.getObjectByName("CV_Anchor");
+    if (!anchor) {
+      console.warn("[office] office.glb has no CV_Anchor: using the placeholder");
+      return null;
+    }
+    const own = new Map(); // one copy per source material (the cached glTF stays untouched)
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = false; // the sun's shadow map only covers the page
+      o.receiveShadow = false;
+      o.material = [o.material].flat().map((m) => {
+        let c = own.get(m);
+        if (!c) {
+          c = m.clone();
+          c.fog = false;
+          // self-lit until the lighting is baked (step 3): see buildPlaceholder()
+          if (c.emissive && c.emissive.getHex() === 0) c.emissive.copy(c.color).multiplyScalar(0.5);
+          c.emissiveIntensity = Math.max(c.emissiveIntensity, 1);
+          own.set(m, c);
+          this.materials.push(c);
+        }
+        return c;
+      });
+      if (o.material.length === 1) o.material = o.material[0];
+    });
+    this.content.add(model);
+    this.source = "office.glb";
+    return anchor;
+  }
+
+  // ---------------------------------------------------------------- placeholder (no office.glb)
 
   /** @returns {THREE.Object3D} the CV anchor */
   buildPlaceholder() {
@@ -182,6 +222,7 @@ export class Office {
     anchor.position.set(TRAY_AT.x, TRAY_FLOOR + PAPER_LIFT, TRAY_AT.z);
     anchor.updateMatrix();
     c.add(anchor);
+    this.source = "placeholder";
     return anchor;
   }
 

@@ -26,6 +26,7 @@ export const MODEL_FILES = {
   player_corporate: "player_corporate.glb",
   player_engineer: "player_engineer.glb",
   gun: "gun.glb",
+  office: "office.glb", // the office around the CV (world/office.js)
 };
 
 const cache = new Map(); // name -> gltf | null (failed)
