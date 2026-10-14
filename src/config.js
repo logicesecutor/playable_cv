@@ -85,6 +85,14 @@ export const config = {
   // ---- look
   inkLift: 0.1, // lifts pure black a little so letters show shading
 
+  // ---- the office around the CV (world/office.js): environment only, no gameplay. ?office=0 = off
+  office: {
+    enabled: true,
+    far: 12000, // camera far plane with the office around (game metres; the room is ~10 x 12 real m)
+    background: 0xcfc8b6, // behind everything, in case a gap shows
+    fogColor: 0xb7b0a0, // distant letters fade into the office's beige instead of black (same distances)
+  },
+
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
   net: {
     maxPlayers: 8,

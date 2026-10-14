@@ -5,6 +5,7 @@ import { enterLandscapeFullscreen, onFullscreenChange } from "./input/fullscreen
 import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
+import { Office } from "./world/office.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
 import { Minimap } from "./ui/minimap.js";
@@ -225,6 +226,14 @@ function startGame(pdf, online = {}) {
   const camera = new THREE.PerspectiveCamera(config.fov, 1, 0.1, 3000);
   const world = buildWorld(pdf, config, renderer);
   scene.add(world.root);
+  // the office around the CV (environment only; ?office=0 turns it off)
+  const officeOn = config.office.enabled && new URLSearchParams(location.search).get("office") !== "0";
+  const office = officeOn ? new Office({ world, cfg: config }) : null;
+  if (office) {
+    scene.add(office.root);
+    scene.background = new THREE.Color(config.office.background);
+    camera.far = config.office.far;
+  }
   const map = mapFingerprint(world);
   console.info("[playable-cv] world", world.stats, "map", map, "graphics", gfx.name);
   if (online.room && map.count !== online.hostMap.count) {
@@ -278,7 +287,7 @@ function startGame(pdf, online = {}) {
   window.addEventListener("resize", resize);
 
   // fog only once we're on the ground; from the top it would grey out the page
-  const fog = new THREE.Fog(0x0b0b0e, 60, Math.max(world.size.W, world.size.D) * 0.9);
+  const fog = new THREE.Fog(office ? config.office.fogColor : 0x0b0b0e, 60, Math.max(world.size.W, world.size.D) * 0.9);
 
   // ---- wiring
   player.onFootstep = (core) => sfx.footstep(Math.hypot(core.vx, core.vz) > config.player.walkSpeed + 0.5);
@@ -579,6 +588,7 @@ function startGame(pdf, online = {}) {
     if (playing) pvp?.update(dt);
     remoteShots.update(dt);
     words.update(dt);
+    office?.update(dt);
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);
@@ -628,12 +638,13 @@ function startGame(pdf, online = {}) {
       offFullscreen();
       player.dispose();
       weapon.dispose();
+      office?.dispose();
       renderer.dispose();
     },
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office,
     get room() {
       return room;
     },
