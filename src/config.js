@@ -94,6 +94,12 @@ export const config = {
     brightness: 1, // multiplies the baked office lighting (office.glb's Baked_* lightmaps)
     // light for what isn't baked (the woman): office-frame hemisphere + soft key, see world/office.js
     shade: { sky: 0xfff6ea, ground: 0x6c6c74, key: 0.3, keyDir: [0.15, 1, -0.45], rim: 0.12 },
+    // her idle life: Type loops; every idleGap seconds one of these (by weight)
+    idle: { Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 },
+    idleGap: [5, 12],
+    // the shred sequence (dev: O key / ?shred=N): seconds the shredder takes to eat the whole page
+    // once she has fed it in. Visual only for now (the shrinking-map mechanic will use office.shred)
+    shredSeconds: 45,
   },
 
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)

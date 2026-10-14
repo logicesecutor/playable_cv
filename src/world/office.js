@@ -16,6 +16,14 @@
 // So when the giant hand lifts the CV (the anchor is animated), the players stay put on the page
 // and the whole office swings around them. Gameplay never notices.
 //
+// Her animation (office.glb clips, baked in blender_src/scripts/anim_woman.py): an idle loop
+// (Type, with Mouse / Sip / Stretch / Glance / Clock now and then) and the Shred sequence. Shred
+// moves CV_Anchor, so the office swings around the players while she lifts, reads and feeds the
+// CV into the shredder; once its top edge is in the slot the game pulls the page in over
+// cfg.office.shredSeconds and `office.shred` says how far ({active, progress 0..1, cutZ, plane}):
+// the hook for the future shrinking-map mechanic. For now the shredding is VISUAL ONLY (a clipping
+// plane hides what went in; collision is untouched) and is started from a dev key (O) / ?shred=N.
+//
 // The model is public/models/office.glb (blender_src/scripts/build_office.py), loaded with the
 // other models at page load. If it is missing, a procedural placeholder with the same layout and
 // real dimensions is used instead, like the box avatar / box gun fallbacks.
@@ -81,6 +89,23 @@ function officeLit(m, shade) {
   return mat;
 }
 
+/** the time of a track's last change (its value stays put after it) */
+function lastChange(track) {
+  const v = track.values, n = track.getValueSize(), last = v.length / n - 1;
+  for (let i = last - 1; i >= 0; i--) {
+    for (let j = 0; j < n; j++) if (Math.abs(v[i * n + j] - v[last * n + j]) > 1e-4) return track.times[i + 1];
+  }
+  return 0;
+}
+
+/** a random key of `weights` that exists in `actions`, by weight */
+function pickWeighted(weights, actions) {
+  const keys = Object.keys(weights).filter((k) => actions[k]);
+  let r = Math.random() * keys.reduce((s, k) => s + weights[k], 0);
+  for (const k of keys) if ((r -= weights[k]) <= 0) return k;
+  return keys[0];
+}
+
 /** one PDF point in real metres */
 export const REAL_M_PER_PT = 0.0254 / 72;
 
@@ -127,7 +152,15 @@ export class Office {
       key: new THREE.Vector3(...(s.keyDir ?? [0.15, 1, -0.45])).normalize(), // office frame: up, towards her monitor
     };
     this.anchor = this.loadModel() || this.buildPlaceholder();
+    this.anchor.updateMatrix();
     this.anchorRest = this.anchor.matrix.clone();
+    this.anchorRestPos = this.anchor.position.clone();
+    this.anchorRestQuat = this.anchor.quaternion.clone();
+    /** shredding state, read by main.js (fx) and, later, by the shrinking-map mechanic */
+    this.shred = { active: false, feeding: false, progress: 0, cutZ: 0, plane: new THREE.Plane() };
+    /** false while the CV is out of the tray (main.js switches the tray's bullet walls off) */
+    this.cvInTray = true;
+    this._travel = world.size.D / this.k + 0.012; // real metres the page moves to go fully through
 
     // the old dark plane around the page would hide the tray floor (it sits 0.25 m below the paper)
     const desk = world.root.getObjectByName("desk");
@@ -135,6 +168,8 @@ export class Office {
 
     this._m = new THREE.Matrix4();
     this._s = new THREE.Matrix4();
+    this._n = new THREE.Vector3();
+    this._p = new THREE.Vector3();
     this.place();
   }
 
@@ -173,6 +208,7 @@ export class Office {
    * @param {THREE.Camera} [camera]
    */
   update(dt, camera) {
+    this.animate(dt);
     this.place();
     if (camera) {
       const u = this.shade.uniforms;
@@ -181,6 +217,143 @@ export class Office {
       u.uUpView.value.set(0, 1, 0).transformDirection(this.root.matrixWorld).transformDirection(view);
       u.uKeyView.value.copy(this.shade.key).transformDirection(this.root.matrixWorld).transformDirection(view);
     }
+    this.updateShredPlane();
+  }
+
+  // ---------------------------------------------------------------- her animation + the shredding
+
+  /**
+   * Clips from office.glb: her body clips on a mixer; the CV's path (Shred) is sampled directly
+   * (shredT), so the shredder's pull can be added on top of it without ever accumulating.
+   */
+  setupAnimation(model, clips) {
+    if (!clips?.length) return;
+    this.mixer = new THREE.AnimationMixer(model);
+    const isAnchor = (t) => t.name.startsWith(`${this.anchor.name}.`);
+    this.actions = {};
+    for (const c of clips) {
+      const name = c.name.split("|").pop();
+      const body = c.tracks.filter((t) => !isAnchor(t));
+      const cv = c.tracks.filter(isAnchor);
+      if (body.length) this.actions[name] = this.mixer.clipAction(new THREE.AnimationClip(name, c.duration, body));
+      if (cv.length && name === "Shred") {
+        const pos = cv.find((t) => t.name.endsWith(".position"));
+        const rot = cv.find((t) => t.name.endsWith(".quaternion"));
+        this.cvPath = { pos: pos?.createInterpolant(), rot: rot?.createInterpolant(), duration: c.duration };
+        // the feed starts when the CV stops moving in the clip (its top edge is in the slot)
+        this.insertAt = pos ? lastChange(pos) : c.duration;
+      }
+    }
+    for (const [name, a] of Object.entries(this.actions)) {
+      if (name === "Type") a.setLoop(THREE.LoopRepeat, Infinity);
+      else {
+        a.setLoop(THREE.LoopOnce, 1);
+        a.clampWhenFinished = true;
+      }
+    }
+    this.mixer.addEventListener("finished", (e) => {
+      if (e.action === this.current) this.play("Type"); // one-shots (and Shred) go back to typing
+    });
+    this.idleT = 4 + Math.random() * 4;
+    this.play("Type", 0);
+  }
+
+  /** cross-fade her body to a clip */
+  play(name, fade = 0.4) {
+    const next = this.actions?.[name];
+    if (!next || next === this.current) return;
+    next.reset().setEffectiveWeight(1).play();
+    if (this.current && fade > 0) next.crossFadeFrom(this.current, fade, false);
+    else this.current?.stop();
+    this.current = next;
+  }
+
+  animate(dt) {
+    if (!this.mixer) return;
+    const o = this.cfg.office;
+    // idle: Type, and every so often something else (never while she's busy with the CV)
+    if (this.current === this.actions.Type && !this.shredding) {
+      this.idleT -= dt;
+      if (this.idleT <= 0) {
+        this.play(pickWeighted(o.idle ?? { Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 }, this.actions));
+        this.idleT = (o.idleGap?.[0] ?? 5) + Math.random() * ((o.idleGap?.[1] ?? 12) - (o.idleGap?.[0] ?? 5));
+      }
+    }
+    this.mixer.update(dt);
+    const s = this.shred;
+    if (this.shredding) {
+      // the CV along her clip, then the shredder pulls it in (top edge first: page "up" = -Z)
+      this.shredT += dt;
+      const t = Math.min(this.shredT, this.cvPath.duration);
+      if (this.cvPath.pos) this.anchor.position.fromArray(this.cvPath.pos.evaluate(t));
+      if (this.cvPath.rot) this.anchor.quaternion.fromArray(this.cvPath.rot.evaluate(t));
+      if (this.shredT >= this.insertAt) {
+        s.feeding = s.active = true;
+        s.progress = Math.min(1, s.progress + dt / (o.shredSeconds ?? 45));
+      }
+      this.anchor.translateZ(-s.progress * this._travel);
+    }
+    this.cvInTray = !this.shredding;
+  }
+
+  /** dev / demo: she picks the CV up and shreds it (O key, ?shred=N). Visual only. */
+  startShred() {
+    if (!this.actions?.Shred || !this.cvPath || this.shredding) return false;
+    this.shredding = true;
+    this.shredT = 0;
+    Object.assign(this.shred, { active: false, feeding: false, progress: 0 });
+    this.play("Shred", 0.3);
+    return true;
+  }
+
+  /** back to the start: CV in the tray, page whole */
+  resetShred() {
+    this.shredding = false;
+    this.anchor.position.copy(this.anchorRestPos);
+    this.anchor.quaternion.copy(this.anchorRestQuat);
+    Object.assign(this.shred, { active: false, feeding: false, progress: 0, cutZ: 0 });
+    this.setPageClip(null);
+    this.play("Type", 0.3);
+  }
+
+  toggleShred() {
+    if (this.shredding) this.resetShred();
+    else this.startShred();
+    return this.shredding;
+  }
+
+  /**
+   * While the page is being fed: the slot's plane in game space (normal out of the shredder;
+   * everything behind it is "in the shredder") and where it cuts the page (cutZ, page metres
+   * from the top edge). The page's materials clip against it.
+   */
+  updateShredPlane() {
+    const s = this.shred;
+    if (!s.feeding || !this.throat) return;
+    this.root.updateMatrixWorld();
+    const n = this._n.set(0, 1, 0).transformDirection(this.throat.matrixWorld); // Blender Z = glTF Y
+    const p = this._p.setFromMatrixPosition(this.throat.matrixWorld);
+    s.plane.setFromNormalAndCoplanarPoint(n, p);
+    const { W, D } = this.world.size;
+    // the page is y = 0; the cut line along it: n.x * x + n.z * z + c = 0 at the page's middle
+    s.cutZ = Math.abs(n.z) > 1e-6 ? THREE.MathUtils.clamp(-(s.plane.constant + n.x * W / 2) / n.z, 0, D) : 0;
+    if (!this._clipOn) this.setPageClip(s.plane);
+  }
+
+  /** clip the page's own materials (paper, letters, rules) against a plane, or stop (null) */
+  setPageClip(plane) {
+    this._clipOn = !!plane;
+    const planes = plane ? [plane] : null;
+    const seen = new Set();
+    this.world.root.traverse((o) => {
+      if (!o.isMesh || o === this.root) return;
+      for (const m of [o.material].flat()) {
+        if (seen.has(m)) continue;
+        seen.add(m);
+        m.clippingPlanes = planes;
+        m.needsUpdate = true;
+      }
+    });
   }
 
   /** root.matrix = T(page centre) · S(K) · inverse(anchor relative to the office content) */
@@ -210,6 +383,8 @@ export class Office {
   }
 
   dispose() {
+    this.mixer?.stopAllAction();
+    if (this._clipOn) this.setPageClip(null);
     this.root.removeFromParent();
     this.root.traverse((o) => o.geometry?.dispose());
     for (const m of this.materials) m.dispose();
@@ -248,6 +423,9 @@ export class Office {
     });
     this.content.add(model);
     this.source = "office.glb";
+    this.throat = model.getObjectByName("Shredder_Throat");
+    this.anchor = anchor; // setupAnimation needs it
+    this.setupAnimation(model, gltf.animations);
     return anchor;
   }
 

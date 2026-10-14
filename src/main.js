@@ -198,6 +198,7 @@ async function start(file) {
 }
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+const NO_WALLS = [];
 
 // ------------------------------------------------------------------ step 2: the map
 
@@ -233,7 +234,12 @@ function startGame(pdf, online = {}) {
     scene.add(office.root);
     scene.background = new THREE.Color(config.office.background);
     camera.far = config.office.far;
+    renderer.localClippingEnabled = true; // the shredder's cut (visual only, office.setPageClip)
   }
+  // dev / demo: ?shred=N -> she shreds the CV N seconds after the intro (also the O key)
+  const shredParam = new URLSearchParams(location.search).get("shred");
+  const shredAfter = office && shredParam !== null ? Number(shredParam) : NaN;
+  let shredTimer = Number.isFinite(shredAfter) && shredAfter >= 0 ? shredAfter : -1;
   const map = mapFingerprint(world);
   console.info("[playable-cv] world", world.stats, "map", map, "graphics", gfx.name);
   if (online.room && map.count !== online.hostMap.count) {
@@ -248,7 +254,9 @@ function startGame(pdf, online = {}) {
 
   // ---- simulation + effects
   const collision = new CollisionWorld(world.entities, world.size);
-  if (office) collision.walls = office.trayWalls(); // the tray's walls stop bullets (movement stays on the page)
+  // the tray's walls stop bullets (movement stays on the page); none while the CV is out of the tray
+  const trayWalls = office ? office.trayWalls() : [];
+  collision.walls = trayWalls;
   const player = new PlayerController(camera, canvas, collision, config, { touch: touchMode });
   const debris = new Debris(collision, gfx.debris);
   const sparks = new ParticleSystem(Math.round(1500 * gfx.particles), { additive: true, gravity: 14, drag: 1.5 });
@@ -358,6 +366,10 @@ function startGame(pdf, online = {}) {
       intro.reset();
       player.unlock(); // after the reset: the pause card stays hidden during the intro
       scene.fog = null;
+    }
+    if (e.code === "KeyO" && office && intro?.done) {
+      // dev / demo: she picks the CV up and shreds it (visual only); O again puts it back
+      hud.toast(office.toggleShred() ? "She noticed your CV…" : "CV back in the tray");
     }
     if (e.code === "KeyM") {
       const muted = sfx.toggleMute();
@@ -552,6 +564,20 @@ function startGame(pdf, online = {}) {
   };
   let disposed = false;
 
+  /** paper flecks along the shredder's cut line, and a rumble for players near it (visual only) */
+  const shredFx = (dt, playing) => {
+    const s = office.shred;
+    if (!s.feeding || s.progress >= 1) return;
+    const { W } = world.size;
+    for (let i = Math.random() < dt * 40 * config.gfx.particles ? 1 : 0; i > 0; i--) {
+      const x = Math.random() * W;
+      dust.emit(x, 0.3 + Math.random() * 1.5, s.cutZ + 0.5, (Math.random() - 0.5) * 2, 1 + Math.random() * 2, 2 + Math.random() * 3,
+        1.2, 0.35, 0.9, 0.97, 0.96, 0.93, 0.8);
+    }
+    const near = Math.abs(player.core.z - s.cutZ);
+    if (playing && near < 40) player.addShake(dt * 0.25 * (1 - near / 40));
+  };
+
   const clock = new THREE.Clock();
   let running = true;
   // browsers stop animation frames in hidden tabs: keep the network going on a timer, so a host
@@ -589,7 +615,12 @@ function startGame(pdf, online = {}) {
     if (playing) pvp?.update(dt);
     remoteShots.update(dt);
     words.update(dt);
-    office?.update(dt, camera);
+    if (office) {
+      if (shredTimer >= 0 && playing && (shredTimer -= dt) < 0) office.startShred();
+      office.update(dt, camera);
+      collision.walls = office.cvInTray ? trayWalls : NO_WALLS;
+      shredFx(dt, playing);
+    }
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);
