@@ -1,5 +1,7 @@
 // The office around the CV: a real-scale room (metres, as built in Blender) shown around the
-// game world. Environment only: nothing here touches collision, raycasts or the network.
+// game world. Environment only: it never touches the network or player movement. The one link to
+// gameplay is trayWalls(), the letter tray's walls, which main.js hands to the collision world as
+// bullet-only walls.
 //
 // How it is placed
 // ----------------
