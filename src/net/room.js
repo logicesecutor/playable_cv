@@ -28,7 +28,7 @@ import { PeerLink, signalCid } from "./peerLink.js";
 import { ClockSync } from "./clock.js";
 import { resolveIce, routeOf } from "./ice.js";
 
-export const NET_VERSION = 5; // bump when the message format changes: old tabs get a clear error
+export const NET_VERSION = 6; // bump when the message format changes: old tabs get a clear error
 
 export const PLAYER_COLORS = ["#ff5a36", "#3fa7ff", "#3ddc84", "#ffc53d", "#c77dff", "#ff6fb5", "#40e0d0", "#e8e8f0"];
 

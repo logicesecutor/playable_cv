@@ -2,6 +2,7 @@
 // deaths / killcam / respawns, damage HUD, kill feed, scoreboard, other players' shots.
 // MP5: the match (net/match.js): first to 10, end card + top-down view of the wrecked CV,
 // host-started rematch on a fresh CV.
+// The match clock (match.startAt): starts when the first guest is in the game, or at a rematch.
 import * as THREE from "three";
 import { Combat, COMBAT } from "../net/combat.js";
 import { Match } from "../net/match.js";
@@ -27,6 +28,7 @@ import { findSpawn } from "../world/layout.js";
  * @param {() => void} o.resetWorld  rematch: every letter back, clean paper, no debris
  * @param {(on:boolean) => void} o.endView  end of match: camera up to the top view of the page
  * @param {number} [o.target=10] kills to win
+ * @param {(m:Match) => void} [o.onClock]  the match clock started, or a new match began (m.startAt)
  */
 export function createPvp(o) {
   const { room, sync, player, weapon, camera, hud, chud, shots, sfx, world, cfg } = o;
@@ -182,6 +184,7 @@ export function createPvp(o) {
         o.endView(false);
         o.onStats();
       },
+      clock: (m) => o.onClock?.(m),
     },
   });
   o.letters.round = () => match.round;
@@ -205,7 +208,7 @@ export function createPvp(o) {
   };
   mhud.onRematch = () => {
     if (!room.isHost || match.playing) return;
-    match.rematch(rematchSpawns(), now() + COMBAT.protection * 1000);
+    match.rematch(rematchSpawns(), now() + COMBAT.protection * 1000, now());
   };
 
   // ---------------------------------------------------------------- weapon <-> network
@@ -264,6 +267,11 @@ export function createPvp(o) {
       return combat.onMessage(msg, from) || match.onMessage(msg);
     },
 
+    /** the match clock: seconds since it started (null = not started), round, playing */
+    clock() {
+      return { elapsed: match.elapsed(now()), round: match.round, playing: match.playing, startAt: match.startAt };
+    },
+
     /** what a joining guest needs (host) */
     snapshot() {
       return { combat: combat.snapshot(), match: match.snapshot() };
@@ -275,6 +283,8 @@ export function createPvp(o) {
     /** the room's player list changed */
     setPlayers(list) {
       combat.syncPlayers(list.map((p) => p.id));
+      // the first match's clock starts once someone else is actually playing (host referees it)
+      if (room.isHost && list.some((p) => !p.host && p.state === "in-game")) match.go(now());
       if (boardOpen) chud.scoreboard(rows(), self());
     },
 

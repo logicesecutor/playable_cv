@@ -2,7 +2,13 @@
 // Pure JS (no three.js, no DOM): tools/sim-match.mjs plays several matches over a laggy fake link.
 //
 //   host -> all  {t:"match", s:"end",   r, w, sc:[[id, kills, deaths, letters, heads, best]…], aw:[[key, id, value]…]}
-//   host -> all  {t:"match", s:"start", r, u, sp:[[id, x, z, yaw]…]}     (u = end of spawn protection)
+//   host -> all  {t:"match", s:"start", r, u, at, sp:[[id, x, z, yaw]…]} (u = end of spawn protection)
+//   host -> all  {t:"match", s:"go",    r, at}
+//
+// The match clock: `at` is the host time (ms, room.now()) the match clock started. A rematch
+// starts it at once; the first match starts it when the first guest is in the game, so a host
+// waiting alone for friends loses nothing. Until then startAt is null. Timed events (the office's
+// shredder) run off this clock, so every screen agrees on when they happen.
 //
 // `r` is the round number. Everything a guest sends that could change the score carries it (see
 // combat.js and letters.js), so hits still in flight when a rematch starts can't leak into it.
@@ -35,7 +41,8 @@ export class Match {
    * @param {boolean} o.isHost
    * @param {number} [o.target=10]
    * @param {(msg:any) => void} [o.toAll]   host
-   * @param {{ended:(m:Match) => void, started:(m:Match) => void}} o.fx
+   * @param {{ended:(m:Match) => void, started:(m:Match) => void, clock?:(m:Match) => void}} o.fx
+   *   `clock`: startAt changed (the match clock started, or a new match began)
    */
   constructor(o) {
     this.isHost = o.isHost;
@@ -49,6 +56,16 @@ export class Match {
     this.scores = [];
     /** [[key, id, value]…] */
     this.awards = [];
+    /** host time (ms) the match clock started; null = waiting for the first guest */
+    this.startAt = null;
+  }
+
+  /**
+   * Seconds since the match clock started (null before it starts).
+   * @param {number} now host time (ms)
+   */
+  elapsed(now) {
+    return this.startAt == null ? null : (now - this.startAt) / 1000;
   }
 
   get playing() {
@@ -75,15 +92,29 @@ export class Match {
   }
 
   /**
+   * Start the match clock if it isn't running yet (the first guest is in the game).
+   * @param {number} at host time (ms)
+   * @returns {boolean} true if it started now
+   */
+  go(at) {
+    if (!this.isHost || !this.playing || this.startAt != null) return false;
+    this.startAt = Math.round(at);
+    this.toAll({ t: "match", s: "go", r: this.round, at: this.startAt });
+    this.fx.clock?.(this);
+    return true;
+  }
+
+  /**
    * Start the next match.
    * @param {[number, number, number, number][]} spawns [[id, x, z, yaw]…]
    * @param {number} protUntil host time
+   * @param {number} [at=protUntil] host time the match clock starts
    */
-  rematch(spawns, protUntil) {
+  rematch(spawns, protUntil, at = protUntil) {
     if (!this.isHost || this.playing) return;
     this.round++;
-    this._start(spawns, protUntil);
-    this.toAll({ t: "match", s: "start", r: this.round, u: Math.round(protUntil), sp: this.spawns });
+    this._start(spawns, protUntil, Math.round(at));
+    this.toAll({ t: "match", s: "start", r: this.round, u: Math.round(protUntil), at: this.startAt, sp: this.spawns });
   }
 
   // ------------------------------------------------------------------ guest
@@ -99,36 +130,44 @@ export class Match {
       this.fx.ended(this);
     } else if (msg.s === "start") {
       this.round = msg.r;
-      this._start(Array.isArray(msg.sp) ? msg.sp : [], msg.u);
+      this._start(Array.isArray(msg.sp) ? msg.sp : [], msg.u, Number.isFinite(msg.at) ? msg.at : null);
+    } else if (msg.s === "go") {
+      if (msg.r === this.round && this.playing && Number.isFinite(msg.at)) {
+        this.startAt = msg.at;
+        this.fx.clock?.(this);
+      }
     }
     return true;
   }
 
-  _start(spawns, protUntil) {
+  _start(spawns, protUntil, at = null) {
     this.phase = "playing";
+    this.startAt = at;
     this.winner = null;
     this.scores = [];
     this.awards = [];
     this.spawns = spawns.map(([id, x, z, yaw]) => [id, Math.round(x * 100) / 100, Math.round(z * 100) / 100, Math.round(yaw * 100) / 100]);
     this.protUntil = protUntil;
     this.fx.started(this);
+    this.fx.clock?.(this);
   }
 
   // ------------------------------------------------------------------ late join
   snapshot() {
-    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards };
+    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards, at: this.startAt };
   }
 
   applySnapshot(s) {
     if (!s) return;
     this.round = s.r ?? 1;
     this.target = s.t ?? this.target;
+    this.startAt = Number.isFinite(s.at) ? s.at : null;
     if (s.p === "ended") {
       this.phase = "ended";
       this.winner = s.w;
       this.scores = s.sc || [];
       this.awards = s.aw || [];
       this.fx.ended(this);
-    }
+    } else this.fx.clock?.(this);
   }
 }
