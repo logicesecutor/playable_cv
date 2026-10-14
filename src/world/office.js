@@ -23,6 +23,30 @@ import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getModel } from "../assets/models.js";
 
+/**
+ * The game's version of an office.glb material:
+ * - Baked_* (bake_office.py): colour + light are in the texture -> unlit, so the office looks
+ *   the same however it swings around the page
+ * - emissive ones (ceiling panels, windows, screens) -> their glow colour, unlit
+ * - anything else (the woman's block-out): self-lit, see buildPlaceholder()
+ * Office materials ignore the fog and the tone mapping (the bake already is the final look).
+ */
+function officeMaterial(m, o) {
+  const k = o?.brightness ?? 1;
+  if (m.name.startsWith("Baked_") && m.map) {
+    return new THREE.MeshBasicMaterial({ name: m.name, map: m.map, color: new THREE.Color(k, k, k), fog: false, toneMapped: false });
+  }
+  if (m.emissive && m.emissive.getHex() !== 0) {
+    const c = m.emissive.clone().multiplyScalar(Math.min(1, m.emissiveIntensity || 1));
+    return new THREE.MeshBasicMaterial({ name: m.name, color: c.lerp(new THREE.Color(1, 1, 1), 0.15), fog: false, toneMapped: false });
+  }
+  const c = m.clone();
+  c.fog = false;
+  c.emissive = c.color.clone().multiplyScalar(0.5);
+  c.emissiveIntensity = 1;
+  return c;
+}
+
 /** one PDF point in real metres */
 export const REAL_M_PER_PT = 0.0254 / 72;
 
@@ -154,11 +178,7 @@ export class Office {
       o.material = [o.material].flat().map((m) => {
         let c = own.get(m);
         if (!c) {
-          c = m.clone();
-          c.fog = false;
-          // self-lit until the lighting is baked (step 3): see buildPlaceholder()
-          if (c.emissive && c.emissive.getHex() === 0) c.emissive.copy(c.color).multiplyScalar(0.5);
-          c.emissiveIntensity = Math.max(c.emissiveIntensity, 1);
+          c = officeMaterial(m, this.cfg.office);
           own.set(m, c);
           this.materials.push(c);
         }
