@@ -249,6 +249,7 @@ input[readonly] { font: 12px var(--mono); color: #cfcfd8; }
   text-align: center; text-shadow: 0 2px 8px #000;
 }
 .kc-title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
+#killcam.shredded { background: #0b0b0ee6; padding: 12px 20px; border-radius: 10px; z-index: 2; }
 .kc-sub { margin: 6px 0 0; font: 14px var(--mono); color: #ddd; }
 #scoreboard {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
@@ -278,6 +279,28 @@ input[readonly] { font: 12px var(--mono); color: #cfcfd8; }
 #match-bar .mb-target { letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-size: 11px; }
 #match-bar .mb-lead b { font-weight: 700; }
 #match-bar .mb-you { color: var(--muted); }
+#match-bar .mb-shred { color: var(--accent); font-weight: 700; }
+/* the shredder: countdown before she reaches for the CV, then what's happening (game/shredder.js) */
+#shred-warn {
+  position: absolute; left: 50%; top: 9%; transform: translateX(-50%);
+  text-align: center; text-shadow: 0 2px 10px #000; pointer-events: none; max-width: 92vw;
+}
+#shred-warn .sw-title { margin: 0; font: 800 22px var(--sans); letter-spacing: -0.01em; color: #fff; }
+#shred-warn .sw-title b { display: block; font: 800 64px/1.05 var(--mono); color: var(--accent); }
+#shred-warn .sw-sub { margin: 6px 0 0; font: 13px var(--mono); color: #ddd; }
+#shred-warn.tick .sw-title b { animation: sw-tick 0.6s ease-out; }
+@keyframes sw-tick { from { transform: scale(1.35); } to { transform: scale(1); } }
+html.touch #shred-warn { top: calc(var(--st) + 52px); }
+html.touch #shred-warn .sw-title b { font-size: 48px; }
+/* S7: our view torn into paper strips in the shredder (fx/shredDeath.js adds .on) */
+#shred-tear {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background:
+    linear-gradient(180deg, #0000 0%, #0000 55%, #b0182066 100%),
+    repeating-linear-gradient(90deg, #f3efe4 0 22px, #d9d3c4 22px 23px, #0000 23px 31px);
+  transform: translateY(-105%);
+}
+#shred-tear.on { opacity: 0.94; transform: translateY(0); transition: transform 0.45s cubic-bezier(.2,.7,.3,1), opacity 0.2s; }
 #reconnect {
   position: absolute; left: 50%; top: 30%; transform: translateX(-50%);
   font: 600 15px var(--sans); color: #fff; text-align: center;

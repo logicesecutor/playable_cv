@@ -15,7 +15,8 @@
     "test:interp": "node tools/test-interp.mjs",
     "sim:net": "node tools/sim-net.mjs",
     "sim:pvp": "node tools/sim-pvp.mjs",
-    "sim:match": "node tools/sim-match.mjs"
+    "sim:match": "node tools/sim-match.mjs",
+    "sim:shred": "node tools/sim-shred.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.2.108",

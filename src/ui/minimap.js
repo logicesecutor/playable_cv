@@ -14,6 +14,8 @@ export class Minimap {
     canvas.height = Math.round((w * size.D) / size.W) * devicePixelRatio;
     canvas.style.aspectRatio = `${size.W} / ${size.D}`;
     this.ctx = canvas.getContext("2d");
+    /** the shredder's cut (game metres from the top edge; 0 = whole page) */
+    this.cutZ = 0;
   }
 
   /**
@@ -26,6 +28,14 @@ export class Minimap {
     const sz = canvas.height / this.size.D;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.raster, 0, 0, canvas.width, canvas.height);
+    if (this.cutZ > 0) {
+      // the shredder's cut: what's above it is gone
+      const cz = Math.min(canvas.height, this.cutZ * sz);
+      ctx.fillStyle = "#0b0b0ee0";
+      ctx.fillRect(0, 0, canvas.width, cz);
+      ctx.fillStyle = "#ff5a36";
+      ctx.fillRect(0, cz - 1.5 * devicePixelRatio, canvas.width, 3 * devicePixelRatio);
+    }
 
     // other players: a dot in their colour with a short facing tick
     const dpr = devicePixelRatio;

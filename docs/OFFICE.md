@@ -2,20 +2,31 @@
 
 The CV no longer floats in the dark: it lies in a black letter tray on the desk of a giant office
 worker, in an open-plan office modelled at real scale. She types, sips her coffee, glances down at
-the players, and (on a dev key for now) picks the CV up and feeds it into a paper shredder. Later the
-shredding will shrink the playable area; today the office is **environment only**: 3D assets,
-baked lighting, her animation and an ambient soundscape. The one gameplay-adjacent change is that
-the tray's walls stop bullets.
+the players, and 1:30 into every game picks the CV up and feeds it into a paper shredder: **the map
+shrinks** from the top edge down, anyone the cut reaches is pulled into the slot and dies in the
+cutters, and when the page is used up the game ends (in a match the leader wins; see "The shredder
+in a match"). Since S8 this holds **alone too**: single player plays by the same rules on its own
+clock (see "Single player (S8)"). Everything else about the office is environment: 3D assets, baked
+lighting, her animation and an ambient soundscape, plus tray walls that stop bullets.
 
-Built on the local branch `feature/office-environment`, commits O1–O7 (see "History" at the end).
+Built on the local branches `feature/office-environment` (commits O1–O8) and `feature/shred-trigger`
+(S1–S8, branched from it); see "History" at the end.
 
 | File | Role |
 |---|---|
-| `src/world/office.js` | `Office`: loads `office.glb` (or a procedural placeholder), places it around the page, materials, her animation, the shred state, the tray's bullet walls |
+| `src/world/office.js` | `Office`: loads `office.glb` (or a procedural placeholder), places it around the page, materials, her animation, the shred state, the tray's bullet walls, the cutters inside the slot (`buildCutters()`, S7) |
 | `src/audio/officeAmbience.js` | `OfficeAmbience`: the procedural, positional soundscape |
-| `src/main.js` | wiring: `?office=`, `?ambience=`, `?shred=`, the O key, `collision.walls`, `shredFx`, `__cv.office` / `__cv.ambience` |
-| `src/config.js` | the `office` block (see "Config reference") |
-| `src/world/collision.js` | `CollisionWorld.walls`: bullet-only quads, tested first in `raycast()` |
+| `src/main.js` | wiring: `?office=`, `?ambience=`, `?shred=`, `?shredAfter=` / `?shredSeconds=`, the O key, `collision.walls`, `shredFx`, `office.syncShred()` from the match clock, `applyCut()` (letters, collision, minimap, fallback clip plane), late-join spawn below the cut, `__cv.office` / `__cv.ambience`; S7: `?shredCatch=`, the `ShredDeath` wiring (slot `plane` and `depth` getters), `__cv.shredDeath`; S8: the `SoloShred` wiring (created unless joining as a guest, disposed by `wireRoom`), the O key → `solo.skip()`, `shredNow = pvp?.shred ?? solo?.shred` for `syncShred()` / `applyCut()`, the shared `setEndView`, the `eaten` counter, `__cv.solo` |
+| `src/config.js` | the `office` block and the `shredder` block (see "Config reference") |
+| `src/game/shredder.js` | the shredder's timetable (pure JS): `shredState()`, `cutAt()`, `gameMetres()`, `PageEater`, `spawnClear()` / `SPAWN_LEAD`, `CATCH_SECONDS` / `CATCH_REACH` (S7) |
+| `src/net/match.js` | the match clock (`startAt`, `go()`, `elapsed()`), the host's shredder timings (`sh`), `finish(rows, why)` |
+| `src/game/pvp.js` | the shredder in a match: `pvp.shred`, the host catching players at the cut (dead `catch` s later, S7), spawns below the cut, the "page used up" end, countdown and notices (through `ShredAnnouncer` since S8), the `shredDeath` hooks and the shredder killcam; S8: the host starts the match clock when the room opens |
+| `src/game/soloShred.js` | `SoloShred` (S8): the shredder alone, with the match rules on this screen's own clock: catch, death, respawn below the cut, the end card, "Play again" (see "Single player (S8)") |
+| `src/game/shredAnnouncer.js` | `ShredAnnouncer` (S8, moved out of `pvp.js`): the countdown and the "She picked up your CV" / "The shredder is eating the page" notices, shared by a match and single player |
+| `src/net/combat.js` | `environmentKill(v, cause)`: a death nobody scores (host only); S7: `catch(v, cause, x, z, ms)`, `isCaught(id)`, the `caught` message |
+| `src/fx/shredDeath.js` | `ShredDeath` (S7): the death sequence: own camera down into the cutters, torn-paper overlay, other players' bodies dragged into the slot and clipped, confetti in the victim's colour, scream and crunch |
+| `src/world/collision.js` | `CollisionWorld.walls`: bullet-only quads, tested first in `raycast()`; `cutZ`: no floor above the shredder's cut |
+| `src/ui/matchHud.js`, `src/ui/combatHud.js`, `src/ui/minimap.js`, `src/audio/sfx.js`, `index.html` (`#shred-warn`, `#shred-tear`), `src/style.css` | countdown / notices / "shredder NN%" / end card reason, kill feed and killcam for shredder deaths (on a dark card since S7), the minimap's greyed-out top, countdown blips, the scream and the cutters' crunch (S7); S8: `MatchHud.shredBar()` (the bar alone: only "shredder NN%") and `MatchHud.showSolo()` (the single-player end card) |
 | `src/player/weapon.js` | a ray that hits a wall gives the result `"wall"` |
 | `src/world/destruction.js` | `wallHit(hit)`: sparks off the plastic, no marks |
 | `src/world/buildWorld.js` | names the dark plane under the page `desk` so the office can hide it |
@@ -23,6 +34,8 @@ Built on the local branch `feature/office-environment`, commits O1–O7 (see "Hi
 | `public/models/office.glb` | the exported office + her + her 7 clips (2.2 MB, committed) |
 | `blender_src/scripts/build_office.py`, `bake_office.py`, `build_woman.py`, `anim_woman.py` | the Blender sources (local only, git-ignored) |
 | `tools/test-raycast.mjs` | also checks the walls (2,000 extra rays) |
+| `tools/sim-shred.mjs` | `npm run sim:shred`: the timetable, timings hand-off, page eater, spawn rule, shredder deaths, the shred ending, the catch → death timeline (S7) |
+| `tools/sim-match.mjs` | also checks that every screen has the same match clock |
 
 ## What the player sees and hears
 
@@ -33,11 +46,20 @@ Built on the local branch `feature/office-environment`, commits O1–O7 (see "Hi
   along the right edge, a paperclip front-left, a yellow sticky note on the back wall.
 - **Her idle life**: she types (a loop) and every 5–12 s does something else: glances down at the
   CV, uses the mouse, sips from her mug, looks at the wall clock and sighs, stretches.
-- **The shred sequence** (dev / demo only): she notices the CV, pinches its front edge, lifts it,
-  reads it, shakes her head, swivels to the shredder and feeds it in top edge first. The players
-  stay on the page; the whole office swings around them. Once the top edge is in the slot the
-  shredder pulls the page in over 45 s: the eaten part disappears behind a clipping plane, paper
-  flecks fly from the cut line and the camera rumbles near it.
+- **The shred sequence**: she notices the CV, pinches its front edge, lifts it, reads it, shakes
+  her head, swivels to the shredder and feeds it in top edge first. The players stay on the page;
+  the whole office swings around them. Once the top edge is in the slot the shredder pulls the page
+  in over 45 s: the eaten part disappears behind a clipping plane, paper flecks fly from the cut
+  line and the camera rumbles near it. It starts by itself 1:30 in, after a 10-second countdown, and
+  the eaten part is gone from the game too: in a multiplayer match on every screen at once (see
+  "The shredder in a match"), alone on your own clock from the end of the intro (see "Single player
+  (S8)"; **O** makes her reach right away).
+- **Caught by the shredder** (S7): when the cut reaches you, you lose control and the camera is
+  pulled along the paper to the slot and down between two shafts of spinning steel cutter discs (each
+  ~15 m across at this scale), shaking harder and harder; then the view tears into paper strips and
+  stays there, under "Went through the shredder", until you respawn. Everyone else sees your soldier
+  dragged into the slot and sliced off by it, paper strips in your colour spraying out, and hears you
+  scream. See "Death by shredder (S7)".
 - **Sound**: room tone (ventilation, mains hum, fluorescent buzz), the wall clock, her keyboard and
   mouse, the mug, her chair, coworkers typing, desk phones, the photocopier, a laser printer,
   footsteps on the carpet, the water cooler, distant indistinct chatter, and the shredder.
@@ -46,12 +68,17 @@ Built on the local branch `feature/office-environment`, commits O1–O7 (see "Hi
 
 | | |
 |---|---|
-| **O** (after the intro) | she picks the CV up and shreds it; **O** again puts it back in the tray. Toasts "She noticed your CV…" / "CV back in the tray". |
-| `?office=0` | no office at all: the old dark backdrop, no tray walls. The game runs exactly the pre-office gameplay path. |
+| **O** (after the intro, single player only) | S8: don't wait for 1:30, she reaches for the CV now (`solo.skip()`, toast "She noticed your CV…"); the rest plays out by the normal rules. Does nothing once she has started. Ignored once a room is open: in multiplayer the match clock decides. (Before S8: a visual-only demo, O again put the CV back.) |
+| `?office=0` | no office at all: the old dark backdrop, no tray walls. The game runs exactly the pre-office gameplay path (in a match the shredder still shrinks the map; a plane across the page hides what is gone). |
 | `?ambience=0` | office on, soundscape off |
-| `?shred=N` | start the shred sequence N seconds after the intro ends (`?shred=0`: right away) |
-| `__cv.office` | the `Office` (state, `toggleShred()`, `debugTilt(deg, liftCm)`, `shred`, `source`) |
+| `?shred=N` | single player only: she reaches for the CV N seconds after the intro ends instead of `config.shredder.after` (90; `?shred=0`: right away). A host's match ignores it (use `?shredAfter=N`) |
+| `?shredAfter=N` | on the host: the shredder starts N s into the match instead of 90 (0–3600; the host's value counts for everyone). It sets `config.shredder.after`, so alone it works too |
+| `?shredSeconds=N` | on the host: the feed takes N s instead of 45 (1–3600; the host's value counts for everyone); alone too |
+| `?shredCatch=N` | on the host: a player the shredder catches dies N s later instead of 1.6 (0.4–20; the host's value counts for everyone): a slow-motion shredder death, e.g. `?shredAfter=8&shredSeconds=30&shredCatch=10` |
+| `__cv.office` | the `Office` (state, `toggleShred()` (the old demo, no longer used by the game), `debugTilt(deg, liftCm)`, `shred`, `source`) |
+| `__cv.solo` | the `SoloShred` of single player (S8: `shred`, `started`, `deaths`, `ended`, `skip()`); `null` as a guest or once a room is open |
 | `__cv.ambience` | the `OfficeAmbience` (`null` with `?ambience=0` or `?office=0`) |
+| `__cv.shredDeath` | the `ShredDeath` sequence (S7: `active`, `ownActive`, `clearAll()`, `confetti`) |
 
 `config.office.enabled = false` turns the office off for every page load.
 
@@ -135,31 +162,45 @@ by `config.office.idle` weights (Glance 3, Mouse 3, Sip 2, Clock 1.5, Stretch 1)
 ### The shred sequence
 
 ```js
-office.startShred()   // false if already shredding or office.glb has no Shred clip
-office.resetShred()   // CV back in the tray, page whole, back to Type
-office.toggleShred()  // returns true if she is now shredding
-office.shred          // { active, feeding, progress, cutZ, plane }
-office.cvInTray       // false while the shred sequence runs
+office.startShred()           // the old solo demo (not called by main.js since S8): false if already shredding or no Shred clip
+office.resetShred()           // CV back in the tray, page whole, back to Type
+office.toggleShred()          // the old solo demo (not called since S8): returns true if she is now shredding
+office.syncShred(t, progress) // follow the clock: the match's, or single player's (S8) (t = s since she reached, null = not yet)
+office.shred                  // { active, feeding, progress, cutZ, plane }  (the visible cut)
+office.cvInTray               // false while the shred sequence runs
+clipPage(world, plane, skip)  // exported: clip the page's materials (also used by main.js without an office)
 ```
 
-1. `startShred()` plays `Shred` on her body and starts sampling the CV's path from the clip.
-2. `insertAt` is the time the CV stops moving in the clip (its top edge is in the slot, ~9.3 s),
-   found by `lastChange()` on the anchor's position track. From then on `feeding` and `active` are
-   true and `progress` grows by `dt / config.office.shredSeconds` (45 s) up to 1.
-3. The pull: after sampling the clip, `anchor.translateZ(-progress · travel)` (page "up" = -Z, top
-   edge first; `travel` = page height in real metres + 1.2 cm).
+1. **Clock-driven** (a match since S2, single player since S8): `syncShred(t, progress)` is called
+   every frame with the state `game/shredder.js` works out from the match clock or from
+   `SoloShred`'s own clock (`main.js` `shredNow`). (The old demo path, `startShred()`, plays `Shred`
+   on its own timer, `shredT += dt`; nothing calls it since S8.) The first call with `t ≥ 0`
+   starts the clip *at* `t`, so a late joiner sees her mid-way through (or typing again, if the clip
+   is already over); after that `shredT` is the clock's `t`, and the clip is snapped back to it if it
+   drifts more than 0.3 s (clock slew, a sleeping tab) or sent back to `Type` once the clock passes
+   its end. `t = null` (a new match, a rematch) calls `resetShred()`.
+2. **Feeding** starts at `config.shredder.grab` (9.35 s: in her Shred clip the CV reaches the slot at
+   9.33 s; `insertAt`, the time the anchor track stops moving, is only the fallback). From then on
+   `feeding` and `active` are true. `progress` is the clock's `progress` (match or single player);
+   on the old `startShred()` path it was `(shredT − grab) / config.shredder.seconds`.
+3. The pull: after sampling the clip, `anchor.translateZ(-(cutAt(progress, D, bite) − bite) / K)`
+   (page "up" = -Z, top edge first). The clip leaves the page `bite` deep in the slot
+   (`config.shredder.bite` = 1 real cm ≈ 8.5 game m), and every metre pulled moves the cut a metre
+   down the page, so **the visible cut lands on the gameplay line** `cutAt()` (see below).
 4. `updateShredPlane()` turns the `Shredder_Throat` empty into a game-space `THREE.Plane` (normal out
    of the shredder) and `cutZ`: how far from the top edge the page has been eaten, in page metres,
-   measured where the plane crosses the page's middle, clamped to `[0, D]`.
-5. `setPageClip(plane)` puts the plane in `clippingPlanes` of every material under `world.root`
-   (paper, letters, rules); `main.js` turns on `renderer.localClippingEnabled` with the office.
+   measured where the plane crosses the page's middle, clamped to `[0, D]`. This is the *visible*
+   cut; gameplay uses `shredState().cutZ`, which it matches.
+5. `setPageClip(plane)` → `clipPage()` puts the plane in `clippingPlanes` of every material under
+   `world.root` (paper, letters, rules). `main.js` now turns on `renderer.localClippingEnabled`
+   always (not only with the office): without an animated office it clips the page itself.
 6. `shredFx` in `main.js`: white paper flecks thrown from the cut line (dust particles, scaled by
    `config.gfx.particles`) and a light camera shake within 40 m of it.
 
-**What it does not do (yet)**: it is **visual only** and **local only**. Collision, raycasts,
-destruction and the minimap are untouched, and nothing is sent over the network: each browser runs
-its own sequence (the host pressing O does not make guests' woman shred). `office.shred` is the hook
-for the shrinking-map mechanic (see "Next: the shrinking map").
+**Solo vs match**: the cut is gameplay in both. In a multiplayer match the match clock starts it on
+every screen ("The shredder in a match" below); in single player `SoloShred` runs the same rules on a
+local clock ("Single player (S8)"). Until S8 single player was a visual-only, local demo that
+collision, raycasts, destruction and the minimap ignored.
 
 ### Tray walls (bullets only)
 
@@ -189,6 +230,286 @@ waits on the 2.2 MB office (fix O7: the preview used to wait for every model). T
 calls `preloadModels()` for all files at page load and a map waits at most 8 s for them. If
 `office.glb` is missing, fails, or has no `CV_Anchor`, `Office` builds a procedural placeholder with
 the same layout and real dimensions (`office.source` says which one is in use).
+
+## The shredder in a match
+
+Commits S1–S5 and S7 (+ fixes) on `feature/shred-trigger`. The shrinking map: 1:30 into a match she
+grabs the CV and the shredder eats the page from the top edge down; everything above the cut is
+out of the game.
+
+### Decisions
+
+| Topic | Choice |
+|---|---|
+| Trigger | **1:30 after the match starts, on the match clock** (`config.shredder.after` = 90 s). |
+| When the clock starts | Round 1: **when the host opens the room** (S8, even with nobody else in it: a host waiting for friends gets the same 1:30 as single player). **Reverses** the S1 choice "when the first guest is in the game" (a host waiting alone loses nothing). Rematches: **at the Rematch press**. |
+| Single player (S8) | **The same rules as a match**, on its own clock from the end of the intro: countdown, the cut, caught, killed, respawned below the cut, an end card when the page is used up. See "Single player (S8)". |
+| Gameplay | **The shred changes gameplay now**: the map shrinks from the top edge. |
+| Caught on the shredded part | **Dies**: counted as a death, **no killer** (nobody gets the kill). Spawn protection doesn't help. Since S7 the cut **catches** them first (next row). |
+| How you die (S7) | **Pulled into the slot (~1.6 s), then dead.** Your own view goes first-person into the blades; everyone else sees your soldier dragged into the slot plus confetti in your colour; **a scream** on a shredder death. (A strained-motor grind while someone is in the shredder was offered and not chosen.) |
+| Page used up, nobody at the kill target | **The match ends, the leader wins** (most kills; fewest deaths breaks a tie: the usual `results()`). |
+| Warning | **A 10-second HUD countdown** before she reaches for the CV. |
+
+### Timeline (defaults)
+
+| Match time | Phase (`shredState`) | What you see |
+|---|---|---|
+| 0:00–1:20 | `waiting` | nothing; `countdown` is null |
+| 1:20–1:30 | `waiting`, `countdown` 10 → 0 | "She's reaching for your CV" + a big ticking number, "the top of the page goes first"; a blip each second, a longer, higher one at zero |
+| 1:30 | `grab` (`t` = 0) | she reaches for the CV, lifts it, reads it, turns to the shredder (9.35 s); notice "She picked up your CV · the shredder is next: get away from the top of the page" |
+| 1:39.35 | `feeding` | notice "The shredder is eating the page · anything above the cut is gone: stay ahead of it"; match bar "shredder NN%"; the cut starts at `bite` (≈ 8.5 m) and moves down the page |
+| 2:24.35 | `done` | the page is used up: the host ends the match if nobody reached the target |
+
+The cut runs at `(D − bite) / seconds` ≈ **5.4 m/s** on the sample CV (253 m page in 45 s), slower
+than walking (6.5 m/s): you can always outrun it. Notices only show for fresh changes (< 3 s old),
+so a late joiner doesn't get the news of 30 s ago.
+
+### How it stays in sync (no network messages for the shred itself)
+
+- **The match clock** (`src/net/match.js`, S1): `startAt` is the host time (ms, `room.now()`) the
+  match clock started; `elapsed(now)` = seconds since then (null before). The host calls `go(at)`
+  as soon as the room opens (end of `createPvp`, S8; before S8: when the player list first had a
+  non-host player `in-game`) and sends
+  `{t:"match", s:"go", r, at, sh}`; a rematch (`rematch(spawns, protUntil, at)`, `at` = the Rematch
+  press) sends `{t:"match", s:"start", r, u, at, sh, sp}`; the late-join snapshot carries `at`, `sh`
+  and `why`. `fx.clock` fires whenever `startAt` changes. `NET_VERSION` 6 (`src/net/room.js`; 7 since S7's `caught` message).
+- **The timings travel with the clock**: `sh = [after, seconds]` are the host's, so a host's dev
+  override (`?shredAfter=` / `?shredSeconds=`) counts for everyone. `grab`, `warn` and `bite` come
+  from each client's own config (they are tied to `office.glb`).
+- **Everything else is computed** (`src/game/shredder.js`, pure JS, S2): every screen runs
+  `shredState(elapsed, timings, D, bite)` → `{phase, t, progress, cutZ, countdown}` on the shared
+  host clock (`net/clock.js`). A guest's clock counts only once it has synced (the first pong).
+  Same clock + same timings = the same cut everywhere, late joiners and reconnects included.
+- **Letters** go through `PageEater` (S4): sorted once by the middle of their footprint, a letter is
+  removed (`destruction.silentKill`: no shards, no score, no network) as soon as the cut passes its
+  middle. Every screen eats the same letters. A smaller `cutZ` (a rematch) starts it over.
+- **Only the catches and deaths go over the network**: the host decides who the cut has reached and
+  sends `caught` (S7), then, `config.shredder.catch` s later, an ordinary death message.
+- `pvp.shred` is frozen while a match is over (the end screen keeps the page as it was); the
+  `fx.clock` of a rematch resets it to `waiting`, which puts the CV back in the tray.
+
+### What the cut does (S4, S5)
+
+Everything with `z < cutZ` (Z = metres from the page's top edge) is gone, on every screen:
+
+| | |
+|---|---|
+| Letters | eaten by `PageEater` (`main.js` `applyCut()`); "CV integrity" drops with them |
+| Bullets | `CollisionWorld.cutZ`: no floor above the cut (`raycast()`); the eaten letters are already out of the grid |
+| Players | the host (`pvp.js` `shredKills()`) **catches** every living player above the cut or within `CATCH_REACH` (0.35 m) of it: `combat.catch(id, "shred", x, z, catch × 1000)` → `{t:"caught", v, c, x, z, u}`; at `u` (1.6 s later) `combat.update()` kills them: `environmentKill(id, "shred")` → `{t:"death", v, by:v, h:0, c:"shred"}`. A death for the victim, no kill for anyone; respawn after 3 s as usual. Kill feed "X went through the shredder", killcam "Went through the shredder". The 1.6 s in between is the death sequence ("Death by shredder (S7)"); before S7 the host killed them on the spot |
+| Spawns | `spawnFor()` only uses spots `SPAWN_LEAD` (30 m) or more below the cut (`spawnClear`); if none is left, a free spot in the middle of the remaining strip, facing down the page. Late joiners and reconnects that would land too close start ~40 m below the cut, facing away |
+| Minimap | everything above the cut greyed out, with a red cut line (`minimap.cutZ`) |
+| Rendering | the animated office hides the eaten part with the shredder's plane; without one (`?office=0`, the placeholder office) `applyCut()` puts its own plane at `z = cutZ` (`clipPage`) |
+| End (S5) | when `phase` is `done` and the match is still on, the host calls `match.finish(rows, "shred")`: end message `why: "shred"`, end card "Match N · the CV went through the shredder: most kills wins". This check runs before the shredder's kills, so the final cut doesn't hand everyone a last death |
+| Rematch | the world reset brings every letter back, the clock restarts at the press, the CV goes back in the tray and the countdown runs again |
+
+### Config and dev options
+
+`config.shredder` (see "Config reference"); on the host, `?shredAfter=N&shredSeconds=N` for quick
+tests, e.g. `?shredAfter=8&shredSeconds=30&target=50`, and `?shredCatch=N` for a slow-motion
+shredder death (S7). From the console: `__cv.pvp.shred` (the
+current state) and `__cv.pvp.clock()` (`{elapsed, round, playing, startAt}`).
+
+### Tests and validation (S1–S6, 2026-10-15)
+
+- **Headless suites all pass**: `sim`, `test:ray`, `sim:pvp`, `test:interp`, `sim:net`, `sim:match`
+  (28 checks, now including the match clock: not running until the host starts it (labelled "waits
+  for the first guest"; since S8 the host starts it when the room opens), started once by the host,
+  same on every screen, restarted by every rematch, handed to late joiners) and the new
+  **`sim:shred`** (26 checks: the timetable and countdown, `cutAt`, timings handed to live and late
+  guests, a rematch restarting the clock, the page eater on 2,000 letters, the spawn rule,
+  environment deaths counted as deaths with no kill and decided by the host only, the shred ending
+  with the leader winning). `vite build` is clean.
+- **Two windows** (headless, `?shredAfter=8&shredSeconds=30&target=50`): countdown, grab and feed
+  notices on both screens; both computed the same phase and cut (within one frame) and ate the same
+  letters; the host, placed near the top, went through the shredder ("Host went through the
+  shredder") and respawned below the cut; at the end of the feed the match ended on both screens with
+  "the CV went through the shredder: most kills wins"; Rematch put the CV back in the tray with all
+  1,745 letters and restarted the countdown.
+- **Three windows, a late joiner during the feed** (one window with `?office=0`): it landed on the same
+  cut and letter count, the fallback plane hid the shredded part, and it spawned below the cut.
+
+### Known limits
+
+- Headless SwiftShader only: no real-GPU or phone check of the shredder yet.
+- A guest is caught by the shredder one round trip late (the host decides it).
+- The end view of a fully shredded match shows an empty tray.
+- No human ear has checked the countdown blips yet.
+
+### Death by shredder (S7)
+
+Commits S7a (`c40e810`: the rules and the network) and S7b (`baa47c4`: what everyone sees and
+hears). The cut no longer kills on the spot: it **catches** you, pulls you into the slot for
+`config.shredder.catch` (1.6 s), and then the host kills you (still a death with no killer).
+
+#### The sequence
+
+| Time after the catch | The victim's own screen | Everyone else |
+|---|---|---|
+| 0 | no more control (`player.dead`, `weapon.blocked`, triggers released, crosshair hidden); the scream (not positional) | the scream from the body (positional, `refDistance` 10 m: it carries) |
+| 0–0.15 s | the camera eases from the last view into the sequence (no jump) | |
+| 0–30 % | slides along the paper to the slot line, turning to look at it | the soldier slides along the page to the slot |
+| from 25 % | | paper strips spray out of the slot: 60 % in the victim's colour, 40 % paper white |
+| 30–100 % | down the slot between the two cutter shafts, the shake growing (0.04 → 0.39 m) plus a rolling wobble | the soldier goes down the slot, falling back (tilt to −1.1 rad), cut off by the slot's plane as it goes in |
+| 55 % | paper crunch at the cutters (`sfx.shredCrunch`) | the same crunch, positional at the slot |
+| 72 % | the view tears into paper strips (`#shred-tear`) | |
+| the death (1.6 s) | the shake jumps; the camera stays in the cutters; killcam "Went through the shredder · N" on a dark card, no camera move | the body is hidden; the strips stop 0.7 s later |
+| respawn (3 s) / new match | `clear` / `clearAll`: overlay off, normal camera | original materials back, tilt reset |
+
+Percentages are of the sequence's length (`until − now` at the catch, at least 0.4 s), so a
+`?shredCatch=10` host slows everything down for everyone.
+
+#### Path and timing (`src/fx/shredDeath.js`)
+
+`ShredDeath.pathAt(a, k)`: the start is where the body was when caught, the **entry** the closest
+point of the slot's plane (start − n · distance). For k < 0.3 it moves (smoothstep) from start to
+entry, then to entry − n · depth · smoothstep((k − 0.3) / 0.7). `main.js` gives two getters:
+
+- `plane()`: while the animated office feeds, `office.shred.plane` (the `Shredder_Throat` plane,
+  normal out of the shredder); otherwise the fallback cut plane (`z ≥ cutZ`, normal +Z).
+- `depth()`: with the cutters, 0.045 real m × K (≈ 38 game m: below them); without (`?office=0`,
+  the placeholder office), 12 m: the body just goes through the cut.
+
+In game space during the feed the slot's plane is vertical at z = cutZ, normal +Z (measured in the
+browser), so "down the slot" is towards −Z, under the part of the page already eaten.
+
+The sequence runs on the **wall clock** (`performance.now()`), not the frame `dt`: the first test,
+at 1–2 fps headless, crawled because the game clamps `dt`; a slow frame rate can't stretch it any
+more. A death message that arrives early snaps the path to its end (`died()`).
+
+#### Rules and network (`src/net/combat.js`, `src/game/pvp.js`)
+
+```js
+combat.catch(v, cause, x, z, ms) // host only, while enabled: a living, uncaught player; death at now + ms
+combat.isCaught(id)
+// host → all (rel): {t:"caught", v, c:"shred", x, z, u}    u = host time of the death
+// fx.caught(victim, cause, {x, z}, until)
+```
+
+- A player is caught once (`catch()` returns false after that).
+- A caught player **can't be hurt**: hits on them are refused like hits on a dead player
+  (`rejectedBy.dead`), so nobody steals the shredder's kill.
+- At `u` the host's `Combat.update()` calls `environmentKill(id, "shred")`: the S4 death message
+  `{t:"death", v, by:v, h:0, c:"shred"}`.
+- A death, a respawn or a rematch (`resetRound()` → `fresh()`) clears `caught`: no death carried
+  into a new match.
+- `pvp.js`: `shredKills()` catches anyone with `z < cutZ + CATCH_REACH` (0.35 m, about a body
+  radius), `ms` = `config.shredder.catch` × 1000 (default `CATCH_SECONDS`). `fx.caught` locks the
+  local player if it is us and calls `shredDeath.caught(id, {self, color, at, until, now})`; `died`
+  with cause `"shred"` → `shredDeath.died(id)`, `respawned` → `clear(id)`, `ended` / `started` →
+  `clearAll()`. On a shredder death the killcam only shows the countdown (`shredded: true`).
+- `NET_VERSION` 7 (`src/net/room.js`): tabs from before S7 get the usual version error.
+
+#### The cutters (`Office.buildCutters()`)
+
+Built in code (not in `office.glb`) under `Shredder_Throat` when the model has one, at real size, in
+throat-local axes (X along the slot, +Y out of it, Z across it):
+
+| | |
+|---|---|
+| Discs | a 14-tooth extruded star (R 9 mm, valleys at 0.84 R), 3.2 mm thick; one `InstancedMesh` per shaft, 31 discs at an 8 mm pitch, the second shaft offset by 4 mm so they interleave (4 mm strips) over 0.248 m |
+| Shafts | at y = −0.028 m (just below the 12 mm slot), z = ±0.0095 m, a 3 mm axle each; they turn towards each other (`rotation.x += ±7 rad/s · dt`) while `office.shred.feeding` |
+| Head interior | a dark `BackSide` box (0.27 × 0.05 × 0.05 m) at y = −0.037 m: only seen from inside |
+| Material | `MeshMatcapMaterial` with a canvas radial-gradient steel matcap (lit the same whichever way the office swings), `fog: false`; disposed with the office |
+
+At game scale a disc is ~15 m across; measured in the browser during a feed, the shafts sit ~24 m
+behind the cut at y ≈ ±8 m. The placeholder office has no cutters.
+
+#### Effects and sound
+
+- **Own view** (`drive()`): the eye starts at standing height above the path point and ends just
+  behind the body (0.4 m along +n), with the shake and a roll wobble (`sin(37 t) · 0.06`).
+  `#shred-tear` (`index.html`, `src/style.css`): cream and grey paper strips with a red tint at the
+  bottom, sliding down in 0.45 s to 94 % opacity (`.on`).
+- **Other players' bodies**: position and tilt are overridden every frame; their meshes get their
+  **own clones** of their materials with `clippingPlanes = [slot plane]`, so nothing else that shares
+  those materials is clipped; `clear()` disposes the clones, puts the originals back and resets the
+  tilt. After the death the avatar is hidden until the respawn.
+- **Confetti**: its own `ParticleSystem` (900 × `config.gfx.particles`, gravity 2.5, drag 1.3),
+  emitted from just outside the slot.
+- **`sfx.scream(pos, seed)`**: a sawtooth voice through three "aah" formants (800, 1150, 2600 Hz),
+  pitch up then falling away over 1.55 s, 6.5 Hz vibrato, a little breath; the base pitch depends
+  on the player id (5 voices); `pos` null = our own (not positional). **`sfx.shredCrunch(pos)`**:
+  7 quick band-passed noise crunches.
+- **Killcam** (`combatHud.killcam({…, shredded: true})`): "Went through the shredder" on a dark card
+  (`#killcam.shredded`) over the torn paper.
+
+#### Config and dev options
+
+`config.shredder.catch` = 1.6 s; `?shredCatch=N` on the host (0.4–20 s; `u` is in the message, so
+the host's value counts for everyone). Console: `__cv.shredDeath`.
+
+#### Validation (2026-10-15)
+
+- All suites pass: `sim`, `test:ray`, `sim:pvp`, `test:interp`, `sim:net`, `sim:match` and
+  `sim:shred`, now 34/34 with 8 new catch checks (caught once; guests learn who, where and when; a
+  caught player can't be shot; still alive at 1.5 s; dead at 1.6 s with no kill; the guest agrees;
+  respawns uncaught; a rematch frees a caught player). `vite build` is clean.
+- Solo, deterministic camera check (headless): the own-view path slides to the slot and goes down
+  between the two cutter shafts (the screenshots show the giant steel teeth), then the torn-paper
+  overlay.
+- Two windows with `?shredCatch=10`: the guest saw the caught host inside the slot between the
+  cutters with orange (the host's colour) confetti; both shredder deaths counted as deaths with no
+  kills; the match still ended on the shredder.
+- Fixed during the test: the sequence crawled at 1–2 fps headless (the frame `dt` clamp); it now
+  runs on the wall clock.
+
+#### Known limits
+
+- No real-GPU check (headless SwiftShader only).
+- A remote victim's name tag lags the dragged body (tags are placed before the override).
+- The cutters are low-poly and stylised.
+- No human ear has checked the scream yet.
+
+### Single player (S8)
+
+Commit S8 (`da60469`). The question was "when I am alone the player does not scream and does not
+die": until S8 the shredder alone was a visual-only demo. Two decisions:
+
+| Topic | Choice |
+|---|---|
+| Single player | **The same rules as a match**, on this screen's own clock: 1:30 after the intro she reaches for the CV, the cut catches you, pulls you into the slot and kills you, you come back below the cut, and the game ends when the page is used up. |
+| A host alone | **The match clock starts as soon as the room is open** (`createPvp` calls `match.go(now())` on the host), not when the first guest is in the game. Reverses S1's choice (see "Decisions"). |
+
+What happens alone (`src/game/soloShred.js`, `SoloShred`):
+
+| | |
+|---|---|
+| Clock | starts on the first `update()` while playing, i.e. when the intro ends; `shredState()` with `config.shredder` timings, `after` = `?shred=N` if given (default 90 s). **O**: `skip()` moves the start back so she reaches now |
+| Countdown and notices | the match's own (`ShredAnnouncer`, `src/game/shredAnnouncer.js`, moved out of `pvp.js` and shared) |
+| Match bar | only "shredder NN%" while she feeds (`MatchHud.shredBar(progress)`, `null` hides the bar) |
+| The cut | `main.js` `applyCut(shredNow.cutZ)` exactly as in a match: letters eaten (`PageEater`), no floor, minimap greyed out, the office's plane (or the fallback plane) |
+| Caught | `player.core.z < cutZ + CATCH_REACH`: control locked (`player.dead`, `weapon.blocked`, no crosshair), `shredDeath.caught(0, {self: true, color: "#ff5a36", at, until, now})`: the slot, the cutters, the scream |
+| Death | `config.shredder.catch` s later (1.6 s; `?shredCatch=N`): `shredDeath.died(0)`, a death counted, killcam "Went through the shredder" counting down 3 s (`shredded: true`) |
+| Respawn | where you were if `spawnClear(z, cutZ)`, otherwise `findSpawn()` near `cutZ + SPAWN_LEAD + 10`, facing away from the shredder |
+| Page used up | `end()`: the top view (`setEndView`, shared with the match end) and `MatchHud.showSolo()`: "Shredded." / "Your CV went through the shredder", your deaths, the letters you shot (`destruction.destroyed` minus the letters the shredder ate, `main.js` `eaten`), the award **Untouchable** with 0 deaths, **Play again** |
+| Play again | `restart()`: `resetWorld` (every letter back, clean paper, `eaten` = 0), the end view off, a fresh clock, spawn at the start |
+
+Wiring (`src/main.js`): `solo` is created for every game except a guest joining a room; the loop
+calls `solo.update(dt, playing)` and uses `shredNow = pvp?.shred ?? solo?.shred` for
+`office.syncShred()` and `applyCut()`. **Opening an invite** (`wireRoom`) disposes `solo` (a caught
+or dead player is put back, the end view is left) and, if the shredder had started on the page
+(`solo.started`), resets the world, so the match starts on a whole page with its own clock.
+`office.startShred()` / `toggleShred()` (the old demo) are still in `office.js` but unused.
+
+#### Validation (2026-10-15)
+
+- All suites pass; `vite build` is clean.
+- Headless solo run (`?shred=3&shredSeconds=20`): countdown, grab and feed notices, letters eaten,
+  the player caught at the cut, died, "Went through the shredder · Respawning", respawned below the
+  cut; end card "Shredded. | Your CV went through the shredder | Play again"; Play again restored all
+  1,745 letters and restarted the countdown.
+- Headless host-alone run: after starting the solo shredder (O) the host opened an invite: solo was
+  replaced, the page restored (1,745 letters), the match clock started at once with nobody else in
+  the room, the host was caught, died, respawned below the cut, and the match ended on the shredder.
+
+#### Known limits
+
+- In a room alone the match end card still says "most kills wins" / "You win!".
+- The host's caught flag stays set on the end screen until the rematch (harmless).
+- `?shred=N` is single player only: a host's match uses `?shredAfter=N`.
+- `tools/sim-match.mjs` still labels a check "match clock waits for the first guest" (it only checks
+  that `startAt` is null until the host calls `go()`).
 
 ## The soundscape (`src/audio/officeAmbience.js`)
 
@@ -331,7 +652,7 @@ retried.
 - Sound positions in `officeAmbience.js` (`SPOTS`, `PODS`, `WALKS`) and clip event times
   (`CLIP_EVENTS`) are copied from the Blender layout and `anim_woman.py`: move them together.
 
-## Config reference (`config.office`)
+## Config reference (`config.office`, `config.shredder`)
 
 | Key | Default | |
 |---|---|---|
@@ -343,12 +664,23 @@ retried.
 | `shade` | `{ sky: 0xfff6ea, ground: 0x6c6c74, key: 0.3, keyDir: [0.15, 1, -0.45], rim: 0.12 }` | her lighting (`officeLit`): hemisphere colours, key strength and direction (office frame), rim |
 | `idle` | `{ Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 }` | weights of her idle one-shots |
 | `idleGap` | `[5, 12]` | seconds of typing between two idle one-shots (random in the range) |
-| `shredSeconds` | `45` | seconds the shredder takes to eat the whole page once it is fed in |
 | `audio` | `{ volume: 0.55, chatter: true, voices: 3, samples: {} }` | soundscape level, chatter on/off, max voices, optional recordings |
+
+`config.shredder` (`game/shredder.js`; replaces the old `office.shredSeconds`):
+
+| Key | Default | |
+|---|---|---|
+| `after` | `90` | match seconds before she reaches for the CV (the host's value counts; `?shredAfter=N` on the host); alone, seconds after the intro (`?shred=N` overrides it there) |
+| `grab` | `9.35` | seconds from reaching to feeding: her Shred clip in `office.glb` (the CV reaches the slot at 9.33 s) |
+| `seconds` | `45` | seconds the shredder takes to eat the page (the host's value counts; `?shredSeconds=N` on the host); also alone |
+| `warn` | `10` | the HUD counts down these last seconds before she reaches |
+| `bite` | `0.01` | real metres of the page already in the slot when the feed starts (≈ 8.5 game m): where the cut starts |
+| `catch` | `1.6` | S7: seconds from the cut catching a player to their death (pulled into the slot); the host's value counts (`?shredCatch=N` on the host) |
 
 ## Validation (step 7)
 
-Results of the validation pass on 2026-10-14 (commits O1–O7).
+Results of the validation pass on 2026-10-14 (commits O1–O7), before the shredder became gameplay
+(its own results are in "The shredder in a match").
 
 - **Headless suites all pass**: `npm run sim`, `npm run test:ray` (3,000 rays against brute force,
   plus the new check: 2,000 rays from the page against a ring of walls, 0 errors), `npm run sim:pvp`,
@@ -378,28 +710,17 @@ Results of the validation pass on 2026-10-14 (commits O1–O7).
       through `config.office.audio.samples` where synthesis falls short.
 - [ ] Confirm on real hardware that the guest "connection lost" banners were only the two-SwiftShader
       setup.
-- [ ] The shred sequence is not networked: each client runs its own, started by O / `?shred=N`.
-- [ ] The shrinking map is not implemented: shredding is visual only.
-
-## Next: the shrinking map
-
-The plan for turning the shred sequence into gameplay, building on `office.shred`:
-
-1. **Clip collision with `cutZ`.** Everything with `z < office.shred.cutZ` is in the shredder:
-   `CollisionWorld.resolve()` clamps players to `z >= cutZ` (or kills those caught behind it),
-   `raycast()` ignores bodies and floor behind it, the destruction code drops (silently kills)
-   letters behind it, and the minimap greys out the eaten strip. The tray walls go off as today
-   (`cvInTray`).
-2. **Network-sync the shred start time.** The host decides when she shreds (a match timer, a score,
-   or the remaining letters) and sends one reliable message with the start time on the shared host
-   clock (`net/clock.js`); every client runs the same clip from that time, so `progress` and `cutZ`
-   agree everywhere without streaming them. Late joiners get the start time in `welcome.world`.
-   Needs a `NET_VERSION` bump. Rematch: `resetShred()` with the round reset.
-3. **Make it fair**: spawns and respawns only in the part of the page still in play, a warning before
-   the feed starts (her Glance, the rumble), and the match end if the page is gone.
-4. **Real-device checklist** before shipping: fps on a mid-range laptop GPU and on an Android phone
-   with the office on and off, audio levels against the gunshots, the shred sequence on the low
-   preset, a two-network multiplayer match with a shred.
+- [x] Network the shred sequence: in a match it runs off the shared match clock (S1–S2).
+- [x] The shrinking map (S4–S5, "The shredder in a match").
+- [ ] Shredder on real hardware: fps during the feed (clipping, flecks) on a mid-range laptop GPU and
+      an Android phone (low preset), and a two-network match with a shred.
+- [ ] Audio levels of the shredder and the countdown blips against the gunshots (a human ear).
+- [ ] The end view of a fully shredded match shows an empty tray.
+- [x] Death by shredder: caught, pulled into the slot, through the cutters (S7).
+- [ ] The shredder death on real hardware, the scream checked by ear, other players' name tags
+      following the dragged body.
+- [x] The shredder alone: same rules as a match on its own clock, end card, Play again (S8).
+- [ ] A room with only the host: the end card still says "most kills wins" / "You win!".
 
 ## History
 
@@ -413,4 +734,17 @@ The plan for turning the shred sequence into gameplay, building on `office.shred
 | O5 | `666cc82` | her idle life and the shred sequence (office rebaked) |
 | O6 | `1e1ed58` | the soundscape |
 | O7 | `9723c85` | per-file model preload: the landing preview never waits on `office.glb` |
-| O8 | | this documentation |
+| O8 | `4562f15` | the office documentation |
+| S1 | `4bee018` | a shared match clock (`Match.startAt`, `go`, `elapsed`; `NET_VERSION` 6) |
+| S2 | `13c52ff` | she grabs the CV 1:30 into a match, on every screen at once (`game/shredder.js`, `syncShred`, `sim:shred`) |
+| S3 | `7d5dcb4` | the 10-second countdown, notices, "shredder NN%" in the match bar |
+| S4 | `2a76c46` | the shredded part is gone: letters, bullets, players (death, no killer), spawns, minimap, fallback clip plane |
+| S5 | `63f1683` | the page used up before the kill target: the leader wins |
+| S5b | `f4a849d` | fixes from the two- and three-window runs (killcam text, late joiners below the cut) |
+| S6 | `0d46e32` | the shredder-in-a-match documentation |
+| S3b | `8e640c6` | commit the missing `#shred-warn` HUD element |
+| S7a | `c40e810` | the shredder catches first, the host kills 1.6 s later (`{t:"caught"}`, `NET_VERSION` 7) |
+| S7b | `baa47c4` | the death sequence: into the slot, through the cutters (`fx/shredDeath.js`, `buildCutters()`, scream) |
+| S7c | `f0678c3` | the death-by-shredder documentation |
+| S8 | `da60469` | the shredder alone (`game/soloShred.js`, `game/shredAnnouncer.js`, O = she reaches now), a host's match clock starts when the room opens |
+| S8b | | this documentation |

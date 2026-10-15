@@ -18,6 +18,8 @@ export class CollisionWorld {
    * @param {number} [cell=4] grid cell size in metres
    */
   constructor(bodies, size, cell = 4) {
+    /** the shredder's cut (game/shredder.js): no floor at z < cutZ */
+    this.cutZ = -Infinity;
     this.bodies = bodies;
     this.size = size;
     this.cell = cell;
@@ -194,11 +196,11 @@ export class CollisionWorld {
    * @returns {null | {t:number, body:Body|null, x:number, y:number, z:number, nx:number, ny:number, nz:number}}
    */
   raycast(ox, oy, oz, dx, dy, dz, maxT = 500) {
-    // floor
+    // floor (none above the shredder's cut: that part of the page is gone)
     let best = null;
     if (dy < -1e-6) {
       const tf = -oy / dy;
-      if (tf > 0 && tf < maxT) {
+      if (tf > 0 && tf < maxT && oz + dz * tf >= this.cutZ) {
         maxT = tf;
         best = { t: tf, body: null, x: ox + dx * tf, y: 0, z: oz + dz * tf, nx: 0, ny: 1, nz: 0 };
       }

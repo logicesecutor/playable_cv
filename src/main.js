@@ -5,7 +5,10 @@ import { enterLandscapeFullscreen, onFullscreenChange } from "./input/fullscreen
 import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
-import { Office } from "./world/office.js";
+import { Office, clipPage } from "./world/office.js";
+import { PageEater, spawnClear, SPAWN_LEAD } from "./game/shredder.js";
+import { ShredDeath } from "./fx/shredDeath.js";
+import { SoloShred } from "./game/soloShred.js";
 import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
@@ -61,6 +64,13 @@ applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<
   // developer tool: ?target=3 for short test matches (only the host's value counts)
   const t = Number(new URLSearchParams(location.search).get("target"));
   if (Number.isInteger(t) && t >= 1 && t <= 100) config.net.killTarget = t;
+  // developer tool: ?shredAfter=20&shredSeconds=15 for a quick shredder (the host's values count)
+  const q = new URLSearchParams(location.search);
+  const after = Number(q.get("shredAfter")), secs = Number(q.get("shredSeconds"));
+  if (q.has("shredAfter") && after >= 0 && after <= 3600) config.shredder.after = after;
+  if (q.has("shredSeconds") && secs >= 1 && secs <= 3600) config.shredder.seconds = secs;
+  const cs = Number(q.get("shredCatch")); // ?shredCatch=6: a slow-motion shredder death (host)
+  if (q.has("shredCatch") && cs >= 0.4 && cs <= 20) config.shredder.catch = cs;
 }
 
 let game = null; // the running map, if any
@@ -221,6 +231,7 @@ function startGame(pdf, online = {}) {
   renderer.shadowMap.type = gfx.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
+  renderer.localClippingEnabled = true; // the shredder's cut (office.setPageClip / clipPage)
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0b0e);
@@ -235,14 +246,12 @@ function startGame(pdf, online = {}) {
     scene.add(office.root);
     scene.background = new THREE.Color(config.office.background);
     camera.far = config.office.far;
-    renderer.localClippingEnabled = true; // the shredder's cut (visual only, office.setPageClip)
   }
   // the office's soundscape (starts with the audio, after the first click; ?ambience=0 = off)
   const ambience = office && new URLSearchParams(location.search).get("ambience") !== "0" ? new OfficeAmbience(sfx, office, config) : null;
-  // dev / demo: ?shred=N -> she shreds the CV N seconds after the intro (also the O key)
+  // single player: ?shred=N -> she reaches for the CV N seconds after the intro (default 90; O = now)
   const shredParam = new URLSearchParams(location.search).get("shred");
-  const shredAfter = office && shredParam !== null ? Number(shredParam) : NaN;
-  let shredTimer = Number.isFinite(shredAfter) && shredAfter >= 0 ? shredAfter : -1;
+  const shredAfter = shredParam !== null ? Number(shredParam) : NaN;
   const map = mapFingerprint(world);
   console.info("[playable-cv] world", world.stats, "map", map, "graphics", gfx.name);
   if (online.room && map.count !== online.hostMap.count) {
@@ -265,7 +274,18 @@ function startGame(pdf, online = {}) {
   const sparks = new ParticleSystem(Math.round(1500 * gfx.particles), { additive: true, gravity: 14, drag: 1.5 });
   const dust = new ParticleSystem(Math.round(2500 * gfx.particles), { gravity: -0.3, drag: 1.8 });
   scene.add(debris.mesh, sparks.points, dust.points);
+  // S7: death by shredder (pulled into the slot, through the cutters); fed by pvp.js
+  const shredDeath = new ShredDeath({
+    scene, camera, player, sfx, particles: gfx.particles,
+    sync: () => sync,
+    plane: () => (office?.shred.feeding ? office.shred.plane : cutPlane),
+    depth: () => (office?.shafts ? 0.045 * office.k : 12), // below the cutters (4.5 cm), or just through the cut
+  });
   const destruction = new Destruction({ world, collision, debris, sparks, dust, sfx, pdf, cfg: config });
+  // multiplayer: the shredder eats the letters above its cut on every screen (game/shredder.js)
+  const eater = new PageEater(world.entities, (e) => destruction.silentKill(e));
+  const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  let ownClip = false; // we clip the page ourselves (no animated office to do it)
   const weapon = new Weapon({ camera, scene, player, collision, destruction, sfx, cfg: config });
   const minimap = new Minimap($("minimap"), pdf.raster, world.size);
   const hud = new Hud(config, { touch: touchMode });
@@ -285,6 +305,7 @@ function startGame(pdf, online = {}) {
     const px = h * renderer.getPixelRatio();
     sparks.setViewport(px, camera.fov);
     dust.setViewport(px, camera.fov);
+    shredDeath.setViewport(px, camera.fov);
     intro?.onResize();
   };
   resize();
@@ -370,9 +391,10 @@ function startGame(pdf, online = {}) {
       player.unlock(); // after the reset: the pause card stays hidden during the intro
       scene.fog = null;
     }
-    if (e.code === "KeyO" && office && intro?.done) {
-      // dev / demo: she picks the CV up and shreds it (visual only); O again puts it back
-      hud.toast(office.toggleShred() ? "She noticed your CV…" : "CV back in the tray");
+    if (e.code === "KeyO" && intro?.done && solo) {
+      // single player: don't wait for 1:30, she reaches for the CV now. (Not in a multiplayer
+      // game: there the match clock decides, game/shredder.js)
+      if (solo.skip()) hud.toast("She noticed your CV…");
     }
     if (e.code === "KeyM") {
       const muted = sfx.toggleMute();
@@ -412,7 +434,47 @@ function startGame(pdf, online = {}) {
   // our word uses the sequence number sync just gave this shot, so others see the same word
   weapon.onTracer = (from, to, kind) => words.ownShot(from, to, kind, sync ? sync.room.selfId : 0, sync ? sync.shotSeq : undefined);
 
+  /** end of a match (or of the page, alone): rise to the top view of the wrecked CV, or back */
+  const setEndView = (on) => {
+    if (on && !endCam) {
+      endCam = { t: 0, pos: camera.position.clone(), quat: camera.quaternion.clone(), to: intro.topPose() };
+      scene.fog = null; // no fog up there
+    } else if (!on && endCam) {
+      endCam = null;
+      camera.near = 0.1;
+      camera.updateProjectionMatrix();
+      if (intro.done) scene.fog = fog;
+    }
+  };
+
+  // S8: alone, the shredder plays by the match rules on our own clock (game/soloShred.js); an
+  // invite replaces it with a real match (wireRoom)
+  let eaten = 0; // letters the shredder ate (not ours, for the end card)
+  const resetSoloWorld = () => {
+    destruction.resetAll();
+    words.reset();
+    hud.integrity(destruction);
+    eaten = 0;
+  };
+  /** @type {SoloShred|null} */
+  let solo = online.room
+    ? null
+    : new SoloShred({
+        world, cfg: config, player, weapon, chud, sfx, shredDeath,
+        resetWorld: resetSoloWorld,
+        endView: setEndView,
+        lettersShot: () => Math.max(0, destruction.destroyed - eaten),
+        after: Number.isFinite(shredAfter) && shredAfter >= 0 ? shredAfter : undefined,
+      });
+
   const wireRoom = (r) => {
+    if (solo) {
+      // the match starts now, on a whole page if the shredder had started on it
+      const shredded = solo.started;
+      solo.dispose();
+      solo = null;
+      if (shredded) resetSoloWorld();
+    }
     sync = new NetSync({ room: r, scene, camera, collision, player, sfx, tags, cfg: config });
     sync.isReloading = () => weapon.reloading > 0; // others see us reload (FLAG.reload)
     const me = r.players.find((p) => p.id === r.selfId);
@@ -445,6 +507,7 @@ function startGame(pdf, online = {}) {
     pvp = createPvp({
       room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
       target: config.net.killTarget,
+      shredDeath,
       onStats: () => playersPanel.render(r.players, r.selfId, letters?.kills),
       onDied: (v) => {
         const pos = v === r.selfId ? player.core : sync?.remotes.get(v)?.pos;
@@ -455,18 +518,7 @@ function startGame(pdf, online = {}) {
         words.reset();
         hud.integrity(destruction);
       },
-      endView: (on) => {
-        // end of match: rise to the top view and look at the wrecked CV (no fog up there)
-        if (on && !endCam) {
-          endCam = { t: 0, pos: camera.position.clone(), quat: camera.quaternion.clone(), to: intro.topPose() };
-          scene.fog = null;
-        } else if (!on && endCam) {
-          endCam = null;
-          camera.near = 0.1;
-          camera.updateProjectionMatrix();
-          if (intro.done) scene.fog = fog;
-        }
-      },
+      endView: setEndView,
     });
     const onGame = (msg, from) => letters?.onMessage(msg, from) || pvp?.onMessage(msg, from);
     if (r.isHost) {
@@ -567,6 +619,28 @@ function startGame(pdf, online = {}) {
   };
   let disposed = false;
 
+  /**
+   * The shredder's cut in this game (S4): letters above it go, the paper there stops catching
+   * bullets, the minimap greys it out. The animated office hides what went into the shredder;
+   * without one (?office=0, placeholder) a plane across the page does it.
+   */
+  const applyCut = (cutZ) => {
+    const n = eater.update(cutZ);
+    if (n) {
+      eaten += n;
+      hud.integrity(destruction);
+    }
+    collision.cutZ = cutZ > 0 ? cutZ : -Infinity;
+    minimap.cutZ = cutZ;
+    const need = cutZ > 0 && !office?.shred.feeding;
+    if (need) cutPlane.constant = -cutZ; // keeps z >= cutZ
+    if (need !== ownClip) {
+      ownClip = need;
+      // (handing back: the office's own plane, if it is clipping by now)
+      clipPage(world, need ? cutPlane : office?._clipOn ? office.shred.plane : null, office?.root);
+    }
+  };
+
   /** paper flecks along the shredder's cut line, and a rumble for players near it (visual only) */
   const shredFx = (dt, playing) => {
     const s = office.shred;
@@ -599,7 +673,14 @@ function startGame(pdf, online = {}) {
     if (!playing) {
       if (!intro.update(dt)) {
         scene.fog = fog;
-        const at = online.resume || { x: world.spawn.x, z: world.spawn.z, yaw: 0 };
+        let at = online.resume || { x: world.spawn.x, z: world.spawn.z, yaw: 0 };
+        const cut = pvp?.shred.cutZ ?? 0;
+        if (!spawnClear(at.z, cut)) {
+          // joined while the shredder is eating the page: start well below the cut, facing away
+          const { W, D } = world.size;
+          const s = findSpawn(world.entities.filter((e) => e.alive), W, D, config.player.radius, { x: at.x, z: Math.min(D - 3, cut + SPAWN_LEAD + 10) });
+          at = { x: s.x, z: s.z, yaw: Math.PI };
+        }
         player.spawn(at.x, at.z, at.yaw);
         setPlaying(true);
       }
@@ -616,15 +697,21 @@ function startGame(pdf, online = {}) {
     sync?.update(dt, playing);
     letters?.update(dt * 1000);
     if (playing) pvp?.update(dt);
+    solo?.update(dt, playing);
+    shredDeath.update(dt);
+    /** the shredder on this screen: the match's, or our own alone */
+    const shredNow = pvp?.shred ?? solo?.shred ?? null;
     remoteShots.update(dt);
     words.update(dt);
     if (office) {
-      if (shredTimer >= 0 && playing && (shredTimer -= dt) < 0) office.startShred();
+      // she follows the match clock (like everyone else's screen), or ours alone
+      if (shredNow) office.syncShred(shredNow.t, shredNow.progress);
       office.update(dt, camera);
       ambience?.update(dt);
       collision.walls = office.cvInTray ? trayWalls : NO_WALLS;
       shredFx(dt, playing);
     }
+    if (shredNow) applyCut(shredNow.cutZ);
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);
@@ -675,13 +762,16 @@ function startGame(pdf, online = {}) {
       player.dispose();
       weapon.dispose();
       ambience?.dispose();
+      solo?.dispose();
+      solo = null;
+      shredDeath.dispose();
       office?.dispose();
       renderer.dispose();
     },
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office, ambience, sfx,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office, ambience, sfx, shredDeath,
     get room() {
       return room;
     },
@@ -693,6 +783,9 @@ function startGame(pdf, online = {}) {
     },
     get pvp() {
       return pvp;
+    },
+    get solo() {
+      return solo;
     },
   };
 }
