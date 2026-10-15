@@ -59,6 +59,7 @@ export class CombatHud {
     if (!info) return;
     this.el.killer.textContent = info.name;
     this.el.killer.previousSibling.textContent = info.shredded ? "Went through " : "Killed by ";
+    this.el.killcam.classList.toggle("shredded", !!info.shredded); // over the torn-paper view: a dark card
     this.el.killer.style.color = info.color;
     this.el.head.textContent = info.head ? " · headshot" : "";
     this.el.count.textContent = String(Math.max(0, Math.ceil(info.left)));

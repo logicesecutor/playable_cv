@@ -270,7 +270,7 @@ export function createPvp(o) {
         z = r.pos.z;
       }
       // S7: caught first (everyone sees them pulled in), dead CATCH_SECONDS later (combat.update)
-      if (z < shred.cutZ + CATCH_REACH) combat.catch(id, "shred", id === self() ? player.core.x : sync.remotes.get(id).pos.x, z, CATCH_SECONDS * 1000);
+      if (z < shred.cutZ + CATCH_REACH) combat.catch(id, "shred", id === self() ? player.core.x : sync.remotes.get(id).pos.x, z, (cfg.shredder.catch ?? CATCH_SECONDS) * 1000);
     }
   };
 

@@ -7,6 +7,7 @@ import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
 import { Office, clipPage } from "./world/office.js";
 import { PageEater, spawnClear, SPAWN_LEAD } from "./game/shredder.js";
+import { ShredDeath } from "./fx/shredDeath.js";
 import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
@@ -67,6 +68,8 @@ applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<
   const after = Number(q.get("shredAfter")), secs = Number(q.get("shredSeconds"));
   if (q.has("shredAfter") && after >= 0 && after <= 3600) config.shredder.after = after;
   if (q.has("shredSeconds") && secs >= 1 && secs <= 3600) config.shredder.seconds = secs;
+  const cs = Number(q.get("shredCatch")); // ?shredCatch=6: a slow-motion shredder death (host)
+  if (q.has("shredCatch") && cs >= 0.4 && cs <= 20) config.shredder.catch = cs;
 }
 
 let game = null; // the running map, if any
@@ -271,6 +274,13 @@ function startGame(pdf, online = {}) {
   const sparks = new ParticleSystem(Math.round(1500 * gfx.particles), { additive: true, gravity: 14, drag: 1.5 });
   const dust = new ParticleSystem(Math.round(2500 * gfx.particles), { gravity: -0.3, drag: 1.8 });
   scene.add(debris.mesh, sparks.points, dust.points);
+  // S7: death by shredder (pulled into the slot, through the cutters); fed by pvp.js
+  const shredDeath = new ShredDeath({
+    scene, camera, player, sfx, particles: gfx.particles,
+    sync: () => sync,
+    plane: () => (office?.shred.feeding ? office.shred.plane : cutPlane),
+    depth: () => (office?.shafts ? 0.045 * office.k : 12), // below the cutters (4.5 cm), or just through the cut
+  });
   const destruction = new Destruction({ world, collision, debris, sparks, dust, sfx, pdf, cfg: config });
   // multiplayer: the shredder eats the letters above its cut on every screen (game/shredder.js)
   const eater = new PageEater(world.entities, (e) => destruction.silentKill(e));
@@ -295,6 +305,7 @@ function startGame(pdf, online = {}) {
     const px = h * renderer.getPixelRatio();
     sparks.setViewport(px, camera.fov);
     dust.setViewport(px, camera.fov);
+    shredDeath.setViewport(px, camera.fov);
     intro?.onResize();
   };
   resize();
@@ -456,6 +467,7 @@ function startGame(pdf, online = {}) {
     pvp = createPvp({
       room: r, sync, letters, player, weapon, camera, hud, chud, shots: remoteShots, sfx, world, cfg: config,
       target: config.net.killTarget,
+      shredDeath,
       onStats: () => playersPanel.render(r.players, r.selfId, letters?.kills),
       onDied: (v) => {
         const pos = v === r.selfId ? player.core : sync?.remotes.get(v)?.pos;
@@ -652,6 +664,7 @@ function startGame(pdf, online = {}) {
     sync?.update(dt, playing);
     letters?.update(dt * 1000);
     if (playing) pvp?.update(dt);
+    shredDeath.update(dt);
     remoteShots.update(dt);
     words.update(dt);
     if (office) {
@@ -716,13 +729,14 @@ function startGame(pdf, online = {}) {
       player.dispose();
       weapon.dispose();
       ambience?.dispose();
+      shredDeath.dispose();
       office?.dispose();
       renderer.dispose();
     },
   };
   // handy for poking at things from the devtools console
   window.__cv = {
-    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office, ambience, sfx,
+    scene, camera, world, renderer, config, player, collision, weapon, destruction, map, remoteShots, words, office, ambience, sfx, shredDeath,
     get room() {
       return room;
     },

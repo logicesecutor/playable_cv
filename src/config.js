@@ -114,6 +114,7 @@ export const config = {
     seconds: 45,
     warn: 10, // the HUD counts down these last seconds before she reaches for the CV
     bite: 0.01, // real metres of the page already in the slot when the feed starts (office.glb)
+    catch: 1.6, // S7: seconds from the cut catching a player to their death (pulled into the slot)
   },
 
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)

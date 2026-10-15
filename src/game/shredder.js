@@ -29,7 +29,7 @@ export function cutAt(progress, D, bite) {
   return bite + Math.max(0, Math.min(1, progress)) * (D - bite);
 }
 
-/** S7: seconds between the shredder catching a player and the host killing them */
+/** S7: seconds between the shredder catching a player and the host killing them (default of config.shredder.catch) */
 export const CATCH_SECONDS = 1.6;
 /** the cut catches you this far before it reaches your centre (game metres, ~ body radius) */
 export const CATCH_REACH = 0.35;

@@ -237,6 +237,7 @@ export class Office {
    */
   update(dt, camera) {
     this.animate(dt);
+    if (this.shafts && this.shred.feeding) for (const s of this.shafts) s.rotation.x += s.userData.spin * dt * 7;
     this.place();
     if (camera) {
       const u = this.shade.uniforms;
@@ -447,6 +448,7 @@ export class Office {
     this.root.removeFromParent();
     this.root.traverse((o) => o.geometry?.dispose());
     for (const m of this.materials) m.dispose();
+    this._matcap?.dispose();
     const desk = this.world.root.getObjectByName("desk");
     if (desk) desk.visible = true;
   }
@@ -483,9 +485,72 @@ export class Office {
     this.content.add(model);
     this.source = "office.glb";
     this.throat = model.getObjectByName("Shredder_Throat");
+    if (this.throat) this.buildCutters();
     this.anchor = anchor; // setupAnimation needs it
     this.setupAnimation(model, gltf.animations);
     return anchor;
+  }
+
+  // ---------------------------------------------------------------- the cutters (S7)
+
+  /**
+   * Inside the slot, at real size: two shafts of interleaved steel cutter discs (Ø 18 mm, a 4 mm
+   * pitch: the strip width) just below the 12 mm slot, and a dark inside to the head. Hidden
+   * inside the shredder; a player fed into it (fx/shredDeath.js) goes down between them. At game
+   * scale a disc is ~15 m across. Throat-local axes (glTF): X along the slot, +Y out of it (the
+   * paper goes in along -Y), Z across the slot (the paper's normal).
+   */
+  buildCutters() {
+    const g = new THREE.Group();
+    g.name = "Cutters";
+    // a matcap for steel: lit the same way whichever way the office has swung
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 64;
+    const x = cv.getContext("2d");
+    const grad = x.createRadialGradient(22, 20, 2, 32, 32, 34);
+    grad.addColorStop(0, "#f4f6f8");
+    grad.addColorStop(0.35, "#9aa1a8");
+    grad.addColorStop(0.75, "#3d4248");
+    grad.addColorStop(1, "#16181b");
+    x.fillStyle = grad;
+    x.fillRect(0, 0, 64, 64);
+    const matcap = new THREE.CanvasTexture(cv);
+    matcap.colorSpace = THREE.SRGBColorSpace;
+    const steel = new THREE.MeshMatcapMaterial({ matcap, fog: false });
+    const dark = new THREE.MeshBasicMaterial({ color: 0x0c0c0e, side: THREE.BackSide, fog: false });
+    this.materials.push(steel, dark);
+    this._matcap = matcap;
+
+    // a cutter: a 14-tooth disc, extruded, turned to spin around X
+    const R = 0.009, teeth = 14, pts = [];
+    for (let i = 0; i < teeth * 2; i++) {
+      const a = (i / (teeth * 2)) * Math.PI * 2, r = i % 2 ? R * 0.84 : R;
+      pts.push(new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r));
+    }
+    const disc = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth: 0.0032, bevelEnabled: false, curveSegments: 1 });
+    disc.translate(0, 0, -0.0016);
+    disc.rotateY(Math.PI / 2);
+    const half = 0.124, pitch = 0.008, count = Math.floor((half * 2) / pitch);
+    this.shafts = [];
+    for (const side of [-1, 1]) {
+      const shaft = new THREE.Group();
+      shaft.position.set(0, -0.028, side * 0.0095);
+      const discs = new THREE.InstancedMesh(disc, steel, count);
+      const m = new THREE.Matrix4();
+      for (let i = 0; i < count; i++) discs.setMatrixAt(i, m.makeTranslation(-half + i * pitch + (side > 0 ? pitch / 2 : 0), 0, 0));
+      shaft.add(discs);
+      const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, half * 2 + 0.01, 10), steel);
+      axle.rotation.z = Math.PI / 2;
+      shaft.add(axle);
+      shaft.userData.spin = side; // they turn towards each other, pulling the paper in
+      g.add(shaft);
+      this.shafts.push(shaft);
+    }
+    // the inside of the head below the slot (only seen from in there: BackSide)
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.05, 0.05), dark);
+    box.position.set(0, -0.037, 0);
+    g.add(box);
+    this.throat.add(g);
   }
 
   // ---------------------------------------------------------------- placeholder (no office.glb)

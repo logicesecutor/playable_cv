@@ -312,6 +312,81 @@ export class Sfx {
     this.footstep(true);
   }
 
+  /**
+   * S7: a cartoon scream falling away into the shredder: a sawtooth voice through "aah" formants,
+   * pitch up then down, vibrato, some breath. pos null = our own (no panning).
+   * @param {{x:number,y:number,z:number}|null} pos
+   * @param {number} [seed] the player id: a different voice for each player
+   */
+  scream(pos, seed = 0) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime, dur = 1.55;
+    const base = 300 + ((Math.abs(seed) * 7) % 5) * 55;
+    const src = ctx.createOscillator();
+    src.type = "sawtooth";
+    src.frequency.setValueAtTime(base * 1.2, t);
+    src.frequency.exponentialRampToValueAtTime(base * 1.65, t + 0.16);
+    src.frequency.exponentialRampToValueAtTime(base * 1.4, t + 0.6);
+    src.frequency.exponentialRampToValueAtTime(base * 0.5, t + dur);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 6.5;
+    const vibG = ctx.createGain();
+    vibG.gain.value = base * 0.05;
+    vib.connect(vibG).connect(src.frequency);
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.85, t + 0.05);
+    out.gain.setValueAtTime(0.85, t + 0.9);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    for (const [f, q, g] of [[800, 5, 1.0], [1150, 7, 0.55], [2600, 9, 0.22]]) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = f;
+      bp.Q.value = q;
+      const gg = ctx.createGain();
+      gg.gain.value = g * 1.6;
+      src.connect(bp).connect(gg).connect(out);
+    }
+    const breath = this.noiseSource(t, dur);
+    const bb = ctx.createBiquadFilter();
+    bb.type = "bandpass";
+    bb.frequency.value = 1600;
+    bb.Q.value = 1.2;
+    const bg = ctx.createGain();
+    bg.gain.value = 0.08;
+    breath.connect(bb).connect(bg).connect(out);
+    const dest = pos ? this.panner(pos) : ctx.createGain();
+    if (pos) dest.refDistance = 10; // carries: everyone should hear it
+    out.connect(dest);
+    dest.connect(this.master);
+    dest.connect(this.reverbSend);
+    src.start(t);
+    vib.start(t);
+    src.stop(t + dur + 0.05);
+    vib.stop(t + dur + 0.05);
+  }
+
+  /** S7: paper (and worse) going through the cutters: a few quick crunches */
+  shredCrunch(pos) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const dest = pos ? this.panner(pos) : ctx.createGain();
+    if (pos) dest.refDistance = 8;
+    dest.connect(this.master);
+    for (let i = 0; i < 7; i++) {
+      const t = t0 + i * 0.075 + Math.random() * 0.03;
+      const n = this.noiseSource(t, 0.09);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 500 + Math.random() * 1400;
+      bp.Q.value = 1.5;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.9 - i * 0.08, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+      n.connect(bp).connect(g).connect(dest);
+    }
+  }
+
   /** the shredder countdown: a short blip each second, a longer, higher one at zero */
   countdown(last) {
     if (!this.ready) return;
