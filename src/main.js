@@ -61,6 +61,11 @@ applyIceUrlOptions(config.net); // ?relay=1 forces the TURN relay, ?turn=<app>:<
   // developer tool: ?target=3 for short test matches (only the host's value counts)
   const t = Number(new URLSearchParams(location.search).get("target"));
   if (Number.isInteger(t) && t >= 1 && t <= 100) config.net.killTarget = t;
+  // developer tool: ?shredAfter=20&shredSeconds=15 for a quick shredder (the host's values count)
+  const q = new URLSearchParams(location.search);
+  const after = Number(q.get("shredAfter")), secs = Number(q.get("shredSeconds"));
+  if (q.has("shredAfter") && after >= 0 && after <= 3600) config.shredder.after = after;
+  if (q.has("shredSeconds") && secs >= 1 && secs <= 3600) config.shredder.seconds = secs;
 }
 
 let game = null; // the running map, if any
@@ -370,8 +375,9 @@ function startGame(pdf, online = {}) {
       player.unlock(); // after the reset: the pause card stays hidden during the intro
       scene.fog = null;
     }
-    if (e.code === "KeyO" && office && intro?.done) {
-      // dev / demo: she picks the CV up and shreds it (visual only); O again puts it back
+    if (e.code === "KeyO" && office && intro?.done && !pvp) {
+      // solo dev / demo: she picks the CV up and shreds it (visual only); O again puts it back.
+      // Not in a multiplayer game: there the match clock decides (game/shredder.js)
       hud.toast(office.toggleShred() ? "She noticed your CV…" : "CV back in the tray");
     }
     if (e.code === "KeyM") {
@@ -619,7 +625,11 @@ function startGame(pdf, online = {}) {
     remoteShots.update(dt);
     words.update(dt);
     if (office) {
-      if (shredTimer >= 0 && playing && (shredTimer -= dt) < 0) office.startShred();
+      if (pvp) {
+        // multiplayer: she follows the match clock, like everyone else's screen
+        const st = pvp.shred;
+        office.syncShred(st.t, st.progress);
+      } else if (shredTimer >= 0 && playing && (shredTimer -= dt) < 0) office.startShred();
       office.update(dt, camera);
       ambience?.update(dt);
       collision.walls = office.cvInTray ? trayWalls : NO_WALLS;

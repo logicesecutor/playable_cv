@@ -2,13 +2,14 @@
 // Pure JS (no three.js, no DOM): tools/sim-match.mjs plays several matches over a laggy fake link.
 //
 //   host -> all  {t:"match", s:"end",   r, w, sc:[[id, kills, deaths, letters, heads, best]…], aw:[[key, id, value]…]}
-//   host -> all  {t:"match", s:"start", r, u, at, sp:[[id, x, z, yaw]…]} (u = end of spawn protection)
-//   host -> all  {t:"match", s:"go",    r, at}
+//   host -> all  {t:"match", s:"start", r, u, at, sh, sp:[[id, x, z, yaw]…]} (u = end of spawn protection)
+//   host -> all  {t:"match", s:"go",    r, at, sh}
 //
 // The match clock: `at` is the host time (ms, room.now()) the match clock started. A rematch
 // starts it at once; the first match starts it when the first guest is in the game, so a host
 // waiting alone for friends loses nothing. Until then startAt is null. Timed events (the office's
-// shredder) run off this clock, so every screen agrees on when they happen.
+// shredder, game/shredder.js) run off this clock, so every screen agrees on when they happen.
+// `sh` = [after, seconds]: the host's shredder timings, so a host's dev override counts for all.
 //
 // `r` is the round number. Everything a guest sends that could change the score carries it (see
 // combat.js and letters.js), so hits still in flight when a rematch starts can't leak into it.
@@ -40,6 +41,7 @@ export class Match {
    * @param {object} o
    * @param {boolean} o.isHost
    * @param {number} [o.target=10]
+   * @param {{after:number, seconds:number}} [o.shred]  host: the shredder's timings
    * @param {(msg:any) => void} [o.toAll]   host
    * @param {{ended:(m:Match) => void, started:(m:Match) => void, clock?:(m:Match) => void}} o.fx
    *   `clock`: startAt changed (the match clock started, or a new match began)
@@ -47,6 +49,8 @@ export class Match {
   constructor(o) {
     this.isHost = o.isHost;
     this.target = o.target ?? 10;
+    /** the shredder's timings, the host's (guests get them with the clock) */
+    this.shred = o.shred ?? null;
     this.toAll = o.toAll;
     this.fx = o.fx;
     this.phase = "playing"; // "playing" | "ended"
@@ -99,7 +103,7 @@ export class Match {
   go(at) {
     if (!this.isHost || !this.playing || this.startAt != null) return false;
     this.startAt = Math.round(at);
-    this.toAll({ t: "match", s: "go", r: this.round, at: this.startAt });
+    this.toAll({ t: "match", s: "go", r: this.round, at: this.startAt, sh: this._sh() });
     this.fx.clock?.(this);
     return true;
   }
@@ -114,13 +118,22 @@ export class Match {
     if (!this.isHost || this.playing) return;
     this.round++;
     this._start(spawns, protUntil, Math.round(at));
-    this.toAll({ t: "match", s: "start", r: this.round, u: Math.round(protUntil), at: this.startAt, sp: this.spawns });
+    this.toAll({ t: "match", s: "start", r: this.round, u: Math.round(protUntil), at: this.startAt, sh: this._sh(), sp: this.spawns });
+  }
+
+  _sh() {
+    return this.shred ? [this.shred.after, this.shred.seconds] : undefined;
+  }
+
+  _takeSh(sh) {
+    if (Array.isArray(sh) && sh.length === 2 && sh.every((v) => Number.isFinite(v) && v >= 0)) this.shred = { after: sh[0], seconds: sh[1] };
   }
 
   // ------------------------------------------------------------------ guest
   /** @returns {boolean} true if the message was ours */
   onMessage(msg) {
     if (this.isHost || msg.t !== "match") return false;
+    this._takeSh(msg.sh);
     if (msg.s === "end") {
       this.phase = "ended";
       this.round = msg.r;
@@ -154,7 +167,7 @@ export class Match {
 
   // ------------------------------------------------------------------ late join
   snapshot() {
-    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards, at: this.startAt };
+    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards, at: this.startAt, sh: this._sh() };
   }
 
   applySnapshot(s) {
@@ -162,6 +175,7 @@ export class Match {
     this.round = s.r ?? 1;
     this.target = s.t ?? this.target;
     this.startAt = Number.isFinite(s.at) ? s.at : null;
+    this._takeSh(s.sh);
     if (s.p === "ended") {
       this.phase = "ended";
       this.winner = s.w;

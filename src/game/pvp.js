@@ -9,6 +9,7 @@ import { Match } from "../net/match.js";
 import { MatchHud } from "../ui/matchHud.js";
 import { FLAG } from "../net/snapshots.js";
 import { findSpawn } from "../world/layout.js";
+import { shredState, gameMetres } from "./shredder.js";
 
 /**
  * @param {object} o
@@ -136,6 +137,7 @@ export function createPvp(o) {
   const match = new Match({
     isHost: room.isHost,
     target: o.target ?? 10,
+    shred: { after: cfg.shredder.after, seconds: cfg.shredder.seconds },
     toAll: (m) => room.broadcast(m),
     fx: {
       ended(m) {
@@ -184,10 +186,26 @@ export function createPvp(o) {
         o.endView(false);
         o.onStats();
       },
-      clock: (m) => o.onClock?.(m),
+      clock: (m) => {
+        shred = WAITING;
+        updateShred();
+        o.onClock?.(m);
+      },
     },
   });
   o.letters.round = () => match.round;
+
+  // ---------------------------------------------------------------- the shredder (game/shredder.js)
+  const bite = cfg.shredder.bite * gameMetres(cfg);
+  const WAITING = shredState(null, cfg.shredder, world.size.D, bite);
+  /** where the shredder is on this screen; frozen while a match is over */
+  let shred = WAITING;
+  const updateShred = () => {
+    if (!match.playing) return; // the end screen keeps the page as it was
+    // a guest's clock is the host's only once it has synced (the first pong)
+    const elapsed = room.synced ? match.elapsed(now()) : null;
+    shred = shredState(elapsed, { ...cfg.shredder, ...match.shred }, world.size.D, bite);
+  };
 
   /** spread everyone over the page: each next spot as far as possible from the ones taken */
   const rematchSpawns = () => {
@@ -267,6 +285,11 @@ export function createPvp(o) {
       return combat.onMessage(msg, from) || match.onMessage(msg);
     },
 
+    /** the shredder on this screen: {phase, t, progress, cutZ, countdown} (game/shredder.js) */
+    get shred() {
+      return shred;
+    },
+
     /** the match clock: seconds since it started (null = not started), round, playing */
     clock() {
       return { elapsed: match.elapsed(now()), round: match.round, playing: match.playing, startAt: match.startAt };
@@ -296,6 +319,7 @@ export function createPvp(o) {
     },
 
     update(dt) {
+      updateShred();
       if (room.isHost) combat.record(self(), now(), player.core.x, player.core.y, player.core.z, player.core.crouching);
       combat.update();
       const me = combat.get(self());

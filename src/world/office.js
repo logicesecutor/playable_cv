@@ -21,10 +21,11 @@
 // Her animation (office.glb clips, baked in blender_src/scripts/anim_woman.py): an idle loop
 // (Type, with Mouse / Sip / Stretch / Glance / Clock now and then) and the Shred sequence. Shred
 // moves CV_Anchor, so the office swings around the players while she lifts, reads and feeds the
-// CV into the shredder; once its top edge is in the slot the game pulls the page in over
-// cfg.office.shredSeconds and `office.shred` says how far ({active, progress 0..1, cutZ, plane}):
-// the hook for the future shrinking-map mechanic. For now the shredding is VISUAL ONLY (a clipping
-// plane hides what went in; collision is untouched) and is started from a dev key (O) / ?shred=N.
+// CV into the shredder; once its top edge is in the slot (cfg.shredder.grab) the game pulls the
+// page in over cfg.shredder.seconds and `office.shred` says how far ({active, progress 0..1, cutZ,
+// plane}). A clipping plane hides what went in. In a multiplayer match the match clock drives it
+// (syncShred, game/shredder.js: the gameplay cut is the same cutAt() line); solo, the O key /
+// ?shred=N start it as a visual-only demo.
 //
 // The model is public/models/office.glb (blender_src/scripts/build_office.py), loaded with the
 // other models at page load. If it is missing, a procedural placeholder with the same layout and
@@ -32,6 +33,7 @@
 import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getModel } from "../assets/models.js";
+import { cutAt } from "../game/shredder.js";
 
 /**
  * The game's version of an office.glb material:
@@ -162,7 +164,10 @@ export class Office {
     this.shred = { active: false, feeding: false, progress: 0, cutZ: 0, plane: new THREE.Plane() };
     /** false while the CV is out of the tray (main.js switches the tray's bullet walls off) */
     this.cvInTray = true;
-    this._travel = world.size.D / this.k + 0.012; // real metres the page moves to go fully through
+    /** game metres of the page already in the slot when the feed starts (see shredder.js cutAt) */
+    this.bite = (cfg.shredder?.bite ?? 0.01) * this.k;
+    /** multiplayer: {t, progress} from the match clock (syncShred); null = the solo demo timer */
+    this._sync = null;
 
     // the old dark plane around the page would hide the tray floor (it sits 0.25 m below the paper)
     const desk = world.root.getObjectByName("desk");
@@ -285,15 +290,20 @@ export class Office {
     const s = this.shred;
     if (this.shredding) {
       // the CV along her clip, then the shredder pulls it in (top edge first: page "up" = -Z)
-      this.shredT += dt;
+      const sh = this.cfg.shredder ?? {};
+      const feedAt = sh.grab ?? this.insertAt;
+      this.shredT = this._sync ? this._sync.t : this.shredT + dt;
       const t = Math.min(this.shredT, this.cvPath.duration);
       if (this.cvPath.pos) this.anchor.position.fromArray(this.cvPath.pos.evaluate(t));
       if (this.cvPath.rot) this.anchor.quaternion.fromArray(this.cvPath.rot.evaluate(t));
-      if (this.shredT >= this.insertAt) {
+      if (this.shredT >= feedAt) {
         s.feeding = s.active = true;
-        s.progress = Math.min(1, s.progress + dt / (o.shredSeconds ?? 45));
+        s.progress = this._sync ? this._sync.progress : Math.min(1, (this.shredT - feedAt) / (sh.seconds ?? 45));
+        // pull the page in so the visible cut lands on the gameplay line (cutAt): the clip leaves
+        // it `bite` deep in the slot, every metre pulled moves the cut a metre down the page
+        const D = this.world.size.D;
+        this.anchor.translateZ(-Math.max(0, cutAt(s.progress, D, this.bite) - this.bite) / this.k);
       }
-      this.anchor.translateZ(-s.progress * this._travel);
     }
     this.cvInTray = !this.shredding;
   }
@@ -304,7 +314,35 @@ export class Office {
     return a ? { name: a.getClip().name, time: a.time } : null;
   }
 
-  /** dev / demo: she picks the CV up and shreds it (O key, ?shred=N). Visual only. */
+  /**
+   * Multiplayer: follow the match clock (game/shredder.js) instead of the demo timer.
+   * @param {number|null} t seconds since she started reaching for the CV (null / < 0: not yet)
+   * @param {number} progress 0..1 of the feed
+   */
+  syncShred(t, progress = 0) {
+    if (t == null || t < 0) {
+      if (this.shredding) this.resetShred();
+      this._sync = null;
+      return;
+    }
+    if (!this.actions?.Shred || !this.cvPath) return; // the placeholder office has no animation
+    const fresh = !this.shredding || !this._sync;
+    this._sync = { t, progress };
+    const dur = this.cvPath.duration;
+    if (fresh) {
+      this.shredding = true;
+      this.shredT = t;
+      Object.assign(this.shred, { active: false, feeding: false, progress: 0 });
+      if (t < dur - 0.2) {
+        this.play("Shred", t < 0.3 ? 0.3 : 0);
+        this.actions.Shred.time = t; // a late joiner sees her mid-way through, like everyone else
+      } else this.play("Type", 0); // that part is over: she's typing while the shredder works
+    } else if (this.current === this.actions.Shred && t < dur && Math.abs(this.current.time - t) > 0.3) {
+      this.current.time = t; // our clock slewed (or the tab slept): catch up
+    }
+  }
+
+  /** solo dev / demo: she picks the CV up and shreds it (O key, ?shred=N). Visual only. */
   startShred() {
     if (!this.actions?.Shred || !this.cvPath || this.shredding) return false;
     this.shredding = true;
@@ -317,6 +355,7 @@ export class Office {
   /** back to the start: CV in the tray, page whole */
   resetShred() {
     this.shredding = false;
+    this._sync = null;
     this.anchor.position.copy(this.anchorRestPos);
     this.anchor.quaternion.copy(this.anchorRestQuat);
     Object.assign(this.shred, { active: false, feeding: false, progress: 0, cutZ: 0 });

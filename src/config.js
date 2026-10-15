@@ -97,13 +97,23 @@ export const config = {
     // her idle life: Type loops; every idleGap seconds one of these (by weight)
     idle: { Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 },
     idleGap: [5, 12],
-    // the shred sequence (dev: O key / ?shred=N): seconds the shredder takes to eat the whole page
-    // once she has fed it in. Visual only for now (the shrinking-map mechanic will use office.shred)
-    shredSeconds: 45,
     // the soundscape (audio/officeAmbience.js), all synthesised; ?ambience=0 turns it off.
     // samples: optional recordings (paths under public/) replacing a synthesised sound, keys:
     // roomtone, phone, copier, printer, chatter, shredder, typing. e.g. { phone: "sounds/phone.ogg" }
     audio: { volume: 0.55, chatter: true, voices: 3, samples: {} },
+  },
+
+  // ---- the shredder (game/shredder.js). In a multiplayer match she grabs the CV `after` seconds in
+  // (the match clock starts when the first guest is in the game, and again at every rematch),
+  // lifts it to the shredder in `grab` seconds (her Shred clip in office.glb: the CV reaches the
+  // slot at 9.33 s), then the shredder eats the page from the top edge in `seconds`. The host's
+  // `after` / `seconds` count (dev: ?shredAfter=20&shredSeconds=15 on the host). Solo: O key / ?shred=N.
+  shredder: {
+    after: 90,
+    grab: 9.35,
+    seconds: 45,
+    warn: 10, // the HUD counts down these last seconds before she reaches for the CV
+    bite: 0.01, // real metres of the page already in the slot when the feed starts (office.glb)
   },
 
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
