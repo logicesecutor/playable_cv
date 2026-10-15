@@ -186,6 +186,7 @@ export function buildWorld(pdf, cfg, renderer) {
   desk.rotation.x = -Math.PI / 2;
   desk.position.set(W / 2, -0.25, D / 2); // well below the paper: no depth fighting at any distance
   desk.receiveShadow = true;
+  desk.name = "desk"; // hidden when the office (world/office.js) is around the page
   root.add(desk);
 
   // ---------------------------------------------------------------- lights

@@ -6,7 +6,7 @@
 // and the front page is the active screen.
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { preloadModels, getModel } from "../assets/models.js";
+import { preloadModels, getModel, CHARACTER_MODELS } from "../assets/models.js";
 import { ModelAvatar } from "../player/modelAvatar.js";
 import { FLAG } from "../net/snapshots.js";
 import { PLAYER_COLORS } from "../net/room.js";
@@ -92,7 +92,7 @@ export function initHunters({ isActive }) {
   near.observe(stage);
 
   async function build() {
-    await preloadModels(); // already downloading (main.js); resolves when done or failed
+    await preloadModels(CHARACTER_MODELS); // already downloading (main.js); not waiting for the office
     if (!getModel("player_engineer") || !getModel("player_corporate")) throw new Error("character models not available");
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });

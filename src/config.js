@@ -85,6 +85,38 @@ export const config = {
   // ---- look
   inkLift: 0.1, // lifts pure black a little so letters show shading
 
+  // ---- the office around the CV (world/office.js): environment only, no gameplay. ?office=0 = off
+  office: {
+    enabled: true,
+    far: 12000, // camera far plane with the office around (game metres; the room is ~10 x 12 real m)
+    background: 0xcfc8b6, // behind everything, in case a gap shows
+    fogColor: 0xb7b0a0, // distant letters fade into the office's beige instead of black (same distances)
+    brightness: 1, // multiplies the baked office lighting (office.glb's Baked_* lightmaps)
+    // light for what isn't baked (the woman): office-frame hemisphere + soft key, see world/office.js
+    shade: { sky: 0xfff6ea, ground: 0x6c6c74, key: 0.3, keyDir: [0.15, 1, -0.45], rim: 0.12 },
+    // her idle life: Type loops; every idleGap seconds one of these (by weight)
+    idle: { Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 },
+    idleGap: [5, 12],
+    // the soundscape (audio/officeAmbience.js), all synthesised; ?ambience=0 turns it off.
+    // samples: optional recordings (paths under public/) replacing a synthesised sound, keys:
+    // roomtone, phone, copier, printer, chatter, shredder, typing. e.g. { phone: "sounds/phone.ogg" }
+    audio: { volume: 0.55, chatter: true, voices: 3, samples: {} },
+  },
+
+  // ---- the shredder (game/shredder.js). In a multiplayer match she grabs the CV `after` seconds in
+  // (the match clock starts when the first guest is in the game, and again at every rematch),
+  // lifts it to the shredder in `grab` seconds (her Shred clip in office.glb: the CV reaches the
+  // slot at 9.33 s), then the shredder eats the page from the top edge in `seconds`. The host's
+  // `after` / `seconds` count (dev: ?shredAfter=20&shredSeconds=15 on the host). Solo: O key / ?shred=N.
+  shredder: {
+    after: 90,
+    grab: 9.35,
+    seconds: 45,
+    warn: 10, // the HUD counts down these last seconds before she reaches for the CV
+    bite: 0.01, // real metres of the page already in the slot when the feed starts (office.glb)
+    catch: 1.6, // S7: seconds from the cut catching a player to their death (pulled into the slot)
+  },
+
   // ---- multiplayer (peer-to-peer WebRTC; the host's browser is the server)
   net: {
     maxPlayers: 8,

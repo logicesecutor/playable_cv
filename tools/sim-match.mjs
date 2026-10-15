@@ -2,7 +2,8 @@
 // play 3 matches to 10 kills over a laggy fake link (ordered like the reliable channel), shooting
 // each other and the letters. The host starts each rematch at once, so hits fired just before the
 // end are still in flight when the next match begins: they must not count. A 5th player joins
-// during an end screen, and a 6th in the middle of a match.
+// during an end screen, and a 6th in the middle of a match. The match clock (startAt) must agree
+// everywhere: started once by the host, restarted by every rematch, handed to late joiners.
 //
 //   npm run sim:match            (LAG=, JITTER=, SEED= to vary)
 import { Combat } from "../src/net/combat.js";
@@ -112,6 +113,14 @@ const drain = (ms) => { const end = now + ms; while (now < end) { for (const n o
 let ok = true;
 const check = (cond, msg) => { console.log(`${cond ? "PASS" : "FAIL"} ${msg}`); ok &&= cond; };
 
+// the match clock: not running until the host starts it (game/pvp.js: when the room opens)
+check([...nodes.values()].every((n) => n.match.startAt === null), "match clock waits for the host's go()");
+now += 1234;
+check(host.match.go(now) && !host.match.go(now + 500), "host starts the match clock once");
+drain(LAG + JITTER + 50);
+check([...nodes.values()].every((n) => n.match.startAt === host.match.startAt && n.match.elapsed(now) > 0), `every screen has the same match clock (start ${host.match.startAt} ms)`);
+const clocksAgree = () => [...nodes.values()].every((n) => n.match.startAt === host.match.startAt);
+
 for (let round = 1; round <= 3; round++) {
   const t0 = now;
   while (host.match.playing && now - t0 < 600000) {
@@ -137,6 +146,7 @@ for (let round = 1; round <= 3; round++) {
     const late = join(4); // joins during the end screen
     drain(LAG + JITTER + 50);
     check(late.ends.length === 1 && late.ends[0].w === hostEnd.w && !late.combat.enabled, "player joining during the end screen sees the results");
+    check(late.match.startAt === host.match.startAt, "player joining during the end screen has the match clock");
   }
   if (round === 3) break;
   // a guest fires just before the host starts the rematch: those hits are in flight during the start
@@ -159,10 +169,12 @@ for (let round = 1; round <= 3; round++) {
   check(hp2.hp === 100 && L.alive && L.hp === L.maxHp, `rematch ${round + 1}: hits fired in match ${round} didn't count (player 2 at ${hp2.hp} HP, letter 300 at ${L.hp}/${L.maxHp})`);
   const reset = [...nodes.values()].every((n) => n.match.round === round + 1 && n.match.playing && n.letters.every((x) => x.alive) && [...n.combat.players.values()].every((p) => p.kills === 0 && p.deaths === 0 && p.alive));
   check(reset, `rematch ${round + 1}: every screen back to a fresh CV, all alive, scores zero`);
+  check(host.match.startAt === now - (LAG + JITTER + 200) && clocksAgree(), `rematch ${round + 1}: match clock restarted at the rematch on every screen`);
 }
 // final: every guest agrees with the host on the live numbers
 drain(1000);
 const hostRows = JSON.stringify(rows(host).map((r) => [r.id, r.kills, r.deaths, r.letters]));
 const agree = [...nodes.values()].every((n) => JSON.stringify(rows(n).map((r) => [r.id, r.kills, r.deaths, r.letters])) === hostRows);
 check(agree, `all ${nodes.size} players agree on kills / deaths / letters (incl. the two late joiners)`);
+check(clocksAgree(), `all ${nodes.size} players agree on the match clock (incl. the two late joiners)`);
 process.exit(ok ? 0 : 1);

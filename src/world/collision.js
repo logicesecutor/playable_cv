@@ -18,6 +18,8 @@ export class CollisionWorld {
    * @param {number} [cell=4] grid cell size in metres
    */
   constructor(bodies, size, cell = 4) {
+    /** the shredder's cut (game/shredder.js): no floor at z < cutZ */
+    this.cutZ = -Infinity;
     this.bodies = bodies;
     this.size = size;
     this.cell = cell;
@@ -28,6 +30,13 @@ export class CollisionWorld {
     this.stamp = 0;
     this.marks = new Uint32Array(bodies.length + 1);
     for (const b of bodies) this.insert(b);
+    /**
+     * Static walls around the page that stop bullets only (the letter tray's walls, set by
+     * world/office.js). Movement doesn't use them: resolve() keeps players on the page anyway.
+     * Vertical quads from (ax, az) to (bx, bz), standing on y = 0, h0 tall at a, h1 tall at b.
+     * @type {{ax:number, az:number, bx:number, bz:number, h0:number, h1:number}[]}
+     */
+    this.walls = [];
   }
 
   insert(b) {
@@ -187,14 +196,33 @@ export class CollisionWorld {
    * @returns {null | {t:number, body:Body|null, x:number, y:number, z:number, nx:number, ny:number, nz:number}}
    */
   raycast(ox, oy, oz, dx, dy, dz, maxT = 500) {
-    // floor
+    // floor (none above the shredder's cut: that part of the page is gone)
     let best = null;
     if (dy < -1e-6) {
       const tf = -oy / dy;
-      if (tf > 0 && tf < maxT) {
+      if (tf > 0 && tf < maxT && oz + dz * tf >= this.cutZ) {
         maxT = tf;
         best = { t: tf, body: null, x: ox + dx * tf, y: 0, z: oz + dz * tf, nx: 0, ny: 1, nz: 0 };
       }
+    }
+
+    // walls around the page (body null, wall true)
+    for (const w of this.walls) {
+      const ex = w.bx - w.ax, ez = w.bz - w.az;
+      const den = dx * ez - dz * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const wx = w.ax - ox, wz = w.az - oz;
+      const t = (wx * ez - wz * ex) / den;
+      if (t <= 1e-5 || t >= maxT) continue;
+      const u = (wx * dz - wz * dx) / den;
+      if (u < 0 || u > 1) continue;
+      const y = oy + dy * t;
+      if (y < 0 || y > w.h0 + (w.h1 - w.h0) * u) continue;
+      const l = Math.hypot(ex, ez) || 1;
+      let nx = ez / l, nz = -ex / l;
+      if (nx * dx + nz * dz > 0) { nx = -nx; nz = -nz; }
+      maxT = t;
+      best = { t, body: null, wall: true, x: ox + dx * t, y, z: oz + dz * t, nx, ny: 0, nz };
     }
 
     const { cell, cols, rows } = this;

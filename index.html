@@ -285,6 +285,8 @@
           <div class="hp-row"><span class="hp-label">HP</span><div class="hp-bar"><span id="hp-fill"></span></div><span id="hp-value">100</span></div>
         </div>
         <div id="match-bar" hidden></div>
+        <div id="shred-warn" hidden role="status"><p class="sw-title"></p><p class="sw-sub"></p></div>
+        <div id="shred-tear" aria-hidden="true"></div>
         <div id="reconnect" hidden role="status"></div>
         <div id="scoreboard" hidden>
           <table>
@@ -377,6 +379,9 @@
               <dt>I</dt><dd>replay intro</dd>
               <dt>Esc</dt><dd>pause</dd>
             </dl>
+            <div class="pause-foot">
+              <button id="home-button" class="btn" type="button" title="Close this game and go back to the start page">&#8962; Home</button>
+            </div>
           </div>
         </div>
         <div id="endcard" hidden>
@@ -390,8 +395,21 @@
               <tbody id="ec-body"></tbody>
             </table>
             <div id="ec-awards"></div>
-            <button id="ec-rematch" class="btn primary" type="button">Rematch on a fresh CV</button>
+            <div class="ec-actions">
+              <button id="ec-rematch" class="btn primary" type="button">Rematch on a fresh CV</button>
+              <button id="ec-home" class="btn" type="button" title="Close this game and go back to the start page">&#8962; Home</button>
+            </div>
             <p id="ec-wait"></p>
+          </div>
+        </div>
+        <div id="leave-confirm" hidden role="dialog" aria-modal="true" aria-labelledby="lc-title">
+          <div class="lc-card">
+            <p id="lc-title" class="lc-title">Leave the game?</p>
+            <p id="lc-text"></p>
+            <div class="lc-actions">
+              <button id="lc-stay" class="btn" type="button">Stay</button>
+              <button id="lc-leave" class="btn primary" type="button">Leave</button>
+            </div>
           </div>
         </div>
       </div>

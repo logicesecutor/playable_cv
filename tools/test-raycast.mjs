@@ -37,4 +37,31 @@ for (let i = 0; i < n; i++) {
 console.log(`${n} rays: ${hitsBody} hit letters, ${hitsFloor} hit floor, ${misses} missed`);
 console.log(`grid raycast ${((tFast / n) * 1000).toFixed(1)} µs/ray vs brute force ${((tBrute / n) * 1000).toFixed(1)} µs/ray`);
 console.log(`mismatches: ${mismatches}`);
-process.exit(mismatches ? 1 : 0);
+
+// tray walls (world/office.js sets them in the game): a box 10 m around the page, 50 m tall.
+// Every ray from the page that would leave it below the wall tops must stop at a wall, never
+// fly on; rays over the top or into the floor / letters are unaffected.
+const m = 10, H = 50, x0 = -m, x1 = W + m, z0 = -m, z1 = D + m;
+col.walls = [
+  { ax: x0, az: z0, bx: x1, bz: z0, h0: H, h1: H }, { ax: x1, az: z0, bx: x1, bz: z1, h0: H, h1: H },
+  { ax: x1, az: z1, bx: x0, bz: z1, h0: H, h1: H }, { ax: x0, az: z1, bx: x0, bz: z0, h0: H, h1: H },
+];
+let wallHits = 0, wallErrors = 0;
+for (let i = 0; i < 2000; i++) {
+  const ox = rnd() * W, oz = rnd() * D, oy = 1.65;
+  const yaw = rnd() * Math.PI * 2, pitch = (rnd() - 0.3) * 0.5;
+  const dx = Math.cos(pitch) * Math.sin(yaw), dy = Math.sin(pitch), dz = Math.cos(pitch) * Math.cos(yaw);
+  const hit = col.raycast(ox, oy, oz, dx, dy, dz, 400);
+  // where would it cross the box, and how high?
+  const tx = dx > 0 ? (x1 - ox) / dx : dx < 0 ? (x0 - ox) / dx : Infinity;
+  const tz = dz > 0 ? (z1 - oz) / dz : dz < 0 ? (z0 - oz) / dz : Infinity;
+  const tw = Math.min(tx, tz), yw = oy + dy * tw;
+  const shouldWall = tw < 400 && yw >= 0 && yw <= H;
+  if (hit?.wall) wallHits++;
+  if (shouldWall && !hit) wallErrors++; // flew through the wall
+  if (hit?.wall && Math.abs(hit.t - tw) > 1e-6) wallErrors++; // stopped somewhere else
+  if (hit?.wall && !shouldWall) wallErrors++;
+}
+col.walls = [];
+console.log(`walls: ${wallHits} of 2000 rays stopped by a tray wall, errors ${wallErrors}`);
+process.exit(mismatches || wallErrors ? 1 : 0);

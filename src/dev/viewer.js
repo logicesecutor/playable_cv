@@ -8,7 +8,7 @@
 // advances time when the tab is hidden (no animation frames).
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { preloadModels, reloadModels, instantiate, getModel, style } from "../assets/models.js";
+import { preloadModels, reloadModels, instantiate, getModel, style, CHARACTER_MODELS } from "../assets/models.js";
 import { BoxAvatar, createAvatar } from "../player/avatar.js";
 import { OUTFITS } from "../net/room.js";
 import { FLAG } from "../net/snapshots.js";
@@ -200,12 +200,12 @@ $("rim").onchange = () => {
 const reload = () => {
   $("status").textContent = "reloading…";
   activeClip = null;
-  reloadModels().then(placeBodies);
+  reloadModels(CHARACTER_MODELS).then(placeBodies);
 };
 $("reload").onclick = reload;
 addEventListener("keydown", (e) => e.code === "KeyR" && !e.repeat && reload());
 
-preloadModels().then(placeBodies);
+preloadModels(CHARACTER_MODELS).then(placeBodies); // the viewer has no use for the office
 
 // ---- loop
 const clock = new THREE.Clock();

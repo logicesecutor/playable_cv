@@ -119,6 +119,15 @@ export class Destruction {
     this.sfx.impact(hit, e.height);
   }
 
+  /** a bullet on a wall of the letter tray (world/office.js): sparks off the plastic, no marks */
+  wallHit(hit) {
+    for (let i = 0; i < 6; i++) {
+      const sp = 3 + Math.random() * 5;
+      this.sparks.emit(hit.x, hit.y, hit.z, hit.nx * sp + (Math.random() - 0.5) * 3, (Math.random() - 0.3) * sp, hit.nz * sp + (Math.random() - 0.5) * 3, 0.15 + Math.random() * 0.2, 0.07, 0.02, 4.0, 2.2, 0.9);
+    }
+    this.sfx.floorHit(hit);
+  }
+
   floorHit(hit) {
     for (let i = 0; i < 6; i++) {
       const sp = 3 + Math.random() * 5;

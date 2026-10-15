@@ -26,41 +26,50 @@ export const MODEL_FILES = {
   player_corporate: "player_corporate.glb",
   player_engineer: "player_engineer.glb",
   gun: "gun.glb",
+  office: "office.glb", // the office around the CV (world/office.js), ~2 MB
 };
+/** what the players are made of: the front page's preview waits for these only, not the office */
+export const CHARACTER_MODELS = ["player_corporate", "player_engineer", "gun"];
 
 const cache = new Map(); // name -> gltf | null (failed)
-let pending = null;
+const loading = new Map(); // name -> Promise (one download per file)
 let bust = 0; // cache-buster after reloadModels()
 
 const url = (file) => `${import.meta.env?.BASE_URL ?? "/"}models/${file}${bust ? `?v=${bust}` : ""}`;
 
 /** drop everything and download again (model viewer, after a new export from Blender) */
-export function reloadModels() {
+export function reloadModels(names = Object.keys(MODEL_FILES)) {
   cache.clear();
-  pending = null;
+  loading.clear();
   bust = Date.now();
-  return preloadModels();
+  return preloadModels(names);
 }
 
-/** @returns {Promise<void>} resolves when every model has loaded or failed */
+/**
+ * Starts the downloads of `names` (once per file) and resolves when those have loaded or failed.
+ * @returns {Promise<void>}
+ */
 export function preloadModels(names = Object.keys(MODEL_FILES)) {
-  if (pending) return pending;
   const loader = new GLTFLoader();
-  pending = Promise.all(
-    names.map((name) =>
-      loader
-        .loadAsync(url(MODEL_FILES[name]))
-        .then((gltf) => {
-          prepare(gltf);
-          cache.set(name, gltf);
-        })
-        .catch((err) => {
-          console.warn(`[models] ${name}: not available, using the built-in fallback`, err?.message || err);
-          cache.set(name, null);
-        }),
-    ),
+  return Promise.all(
+    names.map((name) => {
+      let p = loading.get(name);
+      if (!p) {
+        p = loader
+          .loadAsync(url(MODEL_FILES[name]))
+          .then((gltf) => {
+            prepare(gltf);
+            cache.set(name, gltf);
+          })
+          .catch((err) => {
+            console.warn(`[models] ${name}: not available, using the built-in fallback`, err?.message || err);
+            cache.set(name, null);
+          });
+        loading.set(name, p);
+      }
+      return p;
+    }),
   ).then(() => undefined);
-  return pending;
 }
 
 /** the loaded glTF, or null if it isn't loaded (yet) or failed */
