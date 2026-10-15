@@ -41,7 +41,7 @@ REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5
 | M | mute |
 | I | replay the intro |
 | O | single player only: don't wait for 1:30, she reaches for the CV now (the shredder then plays out by the usual rules, see "The office") |
-| Esc | pause |
+| Esc | pause (the pause card has **Home**: back to the start page, see "Leaving a game") |
 
 ### Phones and tablets (touch)
 
@@ -161,6 +161,12 @@ guest sees "The host left the game.". Both sides treat 10 s without any traffic 
 If the host loses the matchmaking server, it reconnects on its own (1 s → 30 s backoff) under the
 same room id, so the invite link keeps working; players already in are not affected.
 
+**Leaving a game**: **Home** on the pause card or on the end card (next to Rematch / Play again)
+closes the game and shows the start page, where you pick a CV. Alone or as a guest you leave at once
+(the host sees "X left"). A host with guests is asked first ("You're the host: leaving ends the game
+for the other player.", **Stay** / **Leave**, Esc = stay, Enter = leave): leaving closes the room, and
+every guest lands on their start page with "The host left the game.".
+
 ## Play with friends (online)
 
 The game is a static site: the GitHub Action in `.github/workflows/deploy-pages.yml` builds it and
@@ -270,7 +276,7 @@ lives in `src/config.js` → `net`.
 | "…couldn't connect, not even through the relay server." | A firewall blocks the relay too, or the free monthly 500 MB are used up. Try another network on one side. |
 | "The matchmaking server (…) didn't answer." | Broker down or unreachable: try later, or run `npm run signal` + `?broker=`. |
 | "Connection lost. Reconnecting… (attempt n)" | The guest's connection died (Wi-Fi blip, laptop sleep). It retries for 60 s and comes back with the same score. |
-| "The host left the game." | The room no longer exists (host closed the tab or crashed). |
+| "The host left the game." | The room no longer exists (host pressed Home, closed the tab or crashed). |
 | "Lost the matchmaking server. Reconnecting…" (host feed) | Players already in are fine; new joins work again once "Matchmaking server back" shows. |
 | "The download from the host stalled…" | No CV data for 20 s. The host's connection dropped: try the link again. (A slow download that keeps going never times out.) |
 | "Your browser built a different map…" | The guest's browser extracted a different number of pieces. Use the same browser as the host. |
@@ -557,6 +563,8 @@ src/
   ui/lobby.js           join screen, invite box (pause card), player list with ping (+ "relay", "reconnecting…"),
                         notice feed, saved nickname, per-tab rejoin key (sessionStorage); the storage keys
                         keep the old `playable-cv:` prefix so saved names / rejoins survive the rename
+  ui/leave.js           LeaveControl: Home on the pause card (`#home-button`) and the end card (`#ec-home`),
+                        the host's confirm dialog (`#leave-confirm`, only with guests in the game)
   ui/title.js           game title "Destroy Your Career" on every `.game-title` (typed + stamped with
                         `data-animate`, static with `small`), `{version}` tags from package.json, tab title
   ui/landing.js         front page: theme switch (device, then localStorage "dyc-theme"), nav, sample button,

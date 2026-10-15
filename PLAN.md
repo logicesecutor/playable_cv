@@ -17,6 +17,7 @@ original page becomes the minimap.
 | Scale | **Cover height.** Body text is roughly chest-high (you can look and shoot over it). Bigger fonts (the name) are proportionally taller. All of it is tunable in `src/config.js`. |
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
 | Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
+| Home button | **Home on the pause card and the end card closes the game and shows the start page.** A host's room closes with it (guests get "The host left the game." and land on their start page); a guest just leaves. **Confirm only when it ends other people's game** (a host with guests: Stay / Leave); alone or as a guest, no question. (`src/ui/leave.js`) |
 | Mobile | **Phones and tablets in landscape, on-screen controls.** Floating joystick with auto-sprint at the edge (roughly forward), drag to look, fire button that also aims with the same thumb, crouch on hold; fullscreen + landscape lock on Play where supported (Android yes, iPad fullscreen only, iPhone neither); automatic low graphics preset; no aim assist for now. Targets Android Chrome and tablets. Full plan in [MOBILE.md](MOBILE.md). |
 | Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). Shred sequence: gameplay in a match and, since S8, in single player too (next rows). `?office=0` = no office (in a match the shredder still shrinks the map). Details in [docs/OFFICE.md](docs/OFFICE.md). |
 | Shredder trigger | **1:30 after the match starts, on a shared match clock** (`config.shredder.after`). Round 1's clock starts **when the host opens the room**, even alone (S8; this **supersedes** the S1 rule "when the first guest is in the game"); every rematch restarts it **at the Rematch press**. Nothing about the shred is sent: every screen computes it from the clock (`src/game/shredder.js`). |
@@ -267,6 +268,16 @@ Each milestone ends with something runnable.
       [docs/OFFICE.md](docs/OFFICE.md) "Single player (S8)", README. **Known limits:** in a room alone
       the end card still says "most kills wins" / "You win!"; the host's caught flag stays set on the
       end screen until the rematch (harmless).
+- [x] **Home button**, branch `feature/home-button`, commit `6e27be2`. Asked: "a home button to
+      return to the main page (where you select the CV). Close the game and the host disconnects".
+      `src/ui/leave.js` (`LeaveControl`): `#home-button` (pause card), `#ec-home` (end card, next to
+      Rematch / Play again), `#leave-confirm` (Stay / Leave, Esc / Enter) shown only when
+      `othersAffected()` (a host's guests) > 0; `main.js` `onLeave` = `game.dispose()` (host: bye →
+      guests close with "The host left the game.") + exit pointer lock + clear `#join=` +
+      `show("upload")`. **Validation:** headless: alone, Home goes straight to the start page; host +
+      guest: the dialog, Stay keeps the game, Leave sends both to their start page (the guest with
+      "The host left the game."); sims pass. **Not tested:** a guest pressing Home (expected: the
+      guest leaves, the host sees "X left").
 
 ## Multiplayer architecture
 
