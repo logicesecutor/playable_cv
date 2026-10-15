@@ -18,10 +18,11 @@ original page becomes the minimap.
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
 | Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
 | Mobile | **Phones and tablets in landscape, on-screen controls.** Floating joystick with auto-sprint at the edge (roughly forward), drag to look, fire button that also aims with the same thumb, crouch on hold; fullscreen + landscape lock on Play where supported (Android yes, iPad fullscreen only, iPhone neither); automatic low graphics preset; no aim assist for now. Targets Android Chrome and tablets. Full plan in [MOBILE.md](MOBILE.md). |
-| Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). Shred sequence: gameplay in a match (next rows), a visual-only demo in single player (O key, `?shred=N`). `?office=0` = no office (in a match the shredder still shrinks the map). Details in [docs/OFFICE.md](docs/OFFICE.md). |
-| Shredder trigger | **1:30 after the match starts, on a shared match clock** (`config.shredder.after`). Round 1's clock starts **when the first guest is in the game** (a host waiting alone loses nothing); every rematch restarts it **at the Rematch press**. Nothing about the shred is sent: every screen computes it from the clock (`src/game/shredder.js`). |
+| Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). Shred sequence: gameplay in a match and, since S8, in single player too (next rows). `?office=0` = no office (in a match the shredder still shrinks the map). Details in [docs/OFFICE.md](docs/OFFICE.md). |
+| Shredder trigger | **1:30 after the match starts, on a shared match clock** (`config.shredder.after`). Round 1's clock starts **when the host opens the room**, even alone (S8; this **supersedes** the S1 rule "when the first guest is in the game"); every rematch restarts it **at the Rematch press**. Nothing about the shred is sent: every screen computes it from the clock (`src/game/shredder.js`). |
 | Shrinking map | **The shred changes gameplay**: the page is eaten from the top edge in 45 s (~5.4 m/s, walking outruns it); letters, floor and spawns above the cut are gone. A player caught there **dies: a death with no killer** (host decides; since S7 pulled into the slot first, next rows). |
 | Shred ending + warning | If nobody reached the kill target when the page is used up, **the match ends and the leader wins**. Warning: a **10-second HUD countdown** before she reaches for the CV. |
+| Shredder alone (S8) | **Single player gets the same rules as a match**, on its own clock from the end of the intro (`src/game/soloShred.js`): countdown, the cut, caught, killed, respawned below the cut; when the page is used up an end card ("Shredded.", deaths, letters shot, Play again). O = she reaches now, `?shred=N` = the delay. The visual-only demo is gone. Opening an invite replaces it with a match on a whole page. Details in [docs/OFFICE.md](docs/OFFICE.md) "Single player (S8)". |
 | Death by shredder (S7) | **Caught, pulled into the slot (~1.6 s), then dead** (still a death with no killer; a caught player can't be shot, so nobody steals the kill). The victim's own view goes **first-person into the blades**; everyone else sees the soldier **dragged into the slot plus confetti in the victim's colour**; **a scream** on a shredder death. A strained-motor grind while someone is inside was offered and not chosen. Details in [docs/OFFICE.md](docs/OFFICE.md) "Death by shredder (S7)". |
 
 ## How the PDF becomes geometry
@@ -197,14 +198,16 @@ Each milestone ends with something runnable.
       (chatter). (Network-syncing the shred and the shrinking map: done in S1–S5 below.)
 - [x] **The shredder in a match (S1–S6)**, branch `feature/shred-trigger` (from
       `feature/office-environment`). **S1** a shared match clock: `Match.startAt` in host time, `go(at)`
-      when the first guest is in the game (`{t:"match", s:"go", r, at, sh}`), restarted by every
+      when the first guest is in the game (since S8: when the host opens the room)
+      (`{t:"match", s:"go", r, at, sh}`), restarted by every
       rematch (`start` carries `at`), in the late-join snapshot; `NET_VERSION` 6. **S2** she grabs the CV
       1:30 in on every screen at once: `src/game/shredder.js` (pure) turns the clock into
       `{phase waiting / grab / feeding / done, t, progress, cutZ, countdown}`; timings in `config.shredder`
       (after 90 s, grab 9.35 s = her Shred clip, seconds 45, warn 10 s, bite 1 cm; `office.shredSeconds`
       removed), the host's `after` / `seconds` travel with the clock (`sh`, dev `?shredAfter=` /
       `?shredSeconds=` on the host); `office.syncShred(t, progress)` follows the clock (late joiners see
-      her mid-clip) with the visible cut on the gameplay line (`cutAt`); O key / `?shred=N` now solo-only.
+      her mid-clip) with the visible cut on the gameplay line (`cutAt`); O key / `?shred=N` now solo-only
+      (a visual demo until S8).
       **S3** the 10 s countdown ("She's reaching for your CV", blips), grab / feed notices, match bar
       "shredder NN%". **S4** the shredded part is gone: letters eaten when the cut passes their middle
       (`PageEater`, every screen, no network), no floor for bullets (`CollisionWorld.cutZ`), the host
@@ -244,6 +247,26 @@ Each milestone ends with something runnable.
       until it moved to the wall clock. **S7c** docs: [docs/OFFICE.md](docs/OFFICE.md) "Death by
       shredder (S7)", README. **Known limits:** no real-GPU check, a remote victim's name tag lags the
       dragged body, low-poly stylised cutters, the scream unheard by a human so far.
+- [x] **The shredder alone (S8)**, branch `feature/shred-trigger`, commit `da60469`. Asked: "when I
+      am alone the player does not scream and does not die". Decided: single player plays by the
+      match rules, and a host's clock starts as soon as the room opens (no more waiting for the first
+      guest). `src/game/soloShred.js` (`SoloShred`): its own clock from the end of the intro
+      (`?shred=N`, default 90 s; O = `skip()`, she reaches now), the countdown and notices
+      (`src/game/shredAnnouncer.js`, moved out of `pvp.js` and shared), the bar shows only "shredder
+      NN%" (`MatchHud.shredBar`), caught at `cutZ + CATCH_REACH` → `shredDeath` (scream, cutters) →
+      dead `config.shredder.catch` s later → killcam 3 s → respawn below the cut facing away; page
+      used up → top view + `MatchHud.showSolo` ("Shredded.", deaths, letters shot, "Untouchable" with
+      no deaths, Play again = a whole page and a fresh clock). `main.js`: `solo` unless joining as a
+      guest, `wireRoom` disposes it (and resets the page if the shredder had started), the loop uses
+      `pvp?.shred ?? solo?.shred`, shared `setEndView`, `__cv.solo`. `pvp.js`: the host calls
+      `match.go()` when the room opens. **Validation:** all suites pass, the build is clean; headless
+      solo (`?shred=3&shredSeconds=20`): countdown, notices, letters eaten, caught, died, respawned
+      below the cut, end card, Play again restored all 1,745 letters and the countdown; headless host
+      alone: an invite after O replaced solo on a whole page, the match clock started with nobody
+      else in the room, the host died in the shredder and the match ended on it. **S8b** docs:
+      [docs/OFFICE.md](docs/OFFICE.md) "Single player (S8)", README. **Known limits:** in a room alone
+      the end card still says "most kills wins" / "You win!"; the host's caught flag stays set on the
+      end screen until the rematch (harmless).
 
 ## Multiplayer architecture
 
@@ -361,7 +384,8 @@ Each milestone ends with something runnable.
 
 - Multi-page PDFs: pages side by side, or one level per page?
 - Single player win condition (e.g. "destroy the whole Skills section"), or pure sandbox? (Multiplayer
-  has deathmatch to 10 since MP5.)
+  has deathmatch to 10 since MP5; since S8 single player ends when the shredder has eaten the page,
+  with an end card but no win condition.)
 - The shrinking map (what starts the shred, are players behind the cut killed or pushed): **decided and
   built** in S1–S5, a 1:30 match timer and players above the cut die with no killer (pulled into the slot first since S7; see "Decisions so
   far"). The timings (1:30 + 45 s) still need a check with real players.
@@ -382,5 +406,5 @@ destruction, `npm run sim:pvp` player vs player and `npm run sim:match` the matc
 `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser, `?target=3` shortens matches,
 `?relay=1` / `?turn=<app>:<key>` test the TURN relay, `?touch=1` / `?touch=0` force the touch controls,
 `?gfx=low` / `?gfx=high` pick the graphics preset, `?office=0` / `?ambience=0` turn off the office / its sound,
-`?shred=N` starts the solo shred demo N s after the intro (also the O key, single player only),
+`?shred=N` makes her reach for the CV N s after the intro in single player (the O key: right away),
 `?shredAfter=N` / `?shredSeconds=N` on the host time the match shredder, `?shredCatch=N` slows down a shredder death; `npm run sim:shred` tests it. `npm run build` builds the site (GitHub Pages: see the README).

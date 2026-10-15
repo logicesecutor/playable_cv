@@ -40,7 +40,7 @@ REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5
 | Tab (hold) | scoreboard (multiplayer) |
 | M | mute |
 | I | replay the intro |
-| O | single player only: she shreds the CV / puts it back (visual demo, see "The office") |
+| O | single player only: don't wait for 1:30, she reaches for the CV now (the shredder then plays out by the usual rules, see "The office") |
 | Esc | pause |
 
 ### Phones and tablets (touch)
@@ -86,7 +86,7 @@ handy? Use the sample".
 
 - Node 18+ runs the site. Node 22.13+ is needed only for the Node debug tools that read a PDF (`npm run extract`, `npm run sim`)
   (pdf.js 6 requirement); on older Node, `npm install` may print an engine warning you can ignore.
-- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction), `pvp` (combat referee, killcam, scoreboard, `match`), `office` (the office around the page, `toggleShred()`), `ambience` (its soundscape) and `shredDeath` (the shredder's death sequence).
+- `window.__cv` in the devtools console exposes `scene`, `camera`, `world`, `config`, `player`, `collision`, `weapon`, `destruction`, `map` (fingerprint), `remoteShots`, `words` (word shots and stamps), `room` (the open multiplayer room, if any), `sync` (other players: buffers, avatars, stats), `letters` (shared destruction), `pvp` (combat referee, killcam, scoreboard, `match`), `solo` (the single-player shredder: `shred`, `deaths`, `skip()`), `office` (the office around the page), `ambience` (its soundscape) and `shredDeath` (the shredder's death sequence).
 - `npm run signal` starts a local matchmaking server for LAN / offline multiplayer (see below).
 - http://localhost:5173/viewer.html is the model viewer (dev only, see "Characters and the gun").
 - On a phone or tablet: `npm run dev -- --host` and open the LAN address Vite prints
@@ -143,8 +143,8 @@ the clean paper come back, scores go to zero and everyone respawns spread over t
 protection. Hits still in flight from the old match don't count. Players who join mid-match or during
 the end card get the current match state (and the end card).
 
-**The shredder**: 1:30 into every match (the clock starts when the first guest is in the game, and
-again at every Rematch press) the office worker grabs the CV and feeds it into her shredder, after a
+**The shredder**: 1:30 into every match (the host's clock starts as soon as the room is open, even
+before anyone joins, and again at every Rematch press) the office worker grabs the CV and feeds it into her shredder, after a
 10-second countdown on the HUD. The page is eaten from the top edge down in 45 s (~5.4 m/s, slower
 than walking): letters above the cut vanish, and anyone the cut reaches is pulled into the slot and
 dies in the cutters 1.6 s later (a death, no kill for anyone: "X went through the shredder"; your own
@@ -384,22 +384,26 @@ typing, phones, the copier and printer, footsteps, distant chatter
 The page never moves (when she lifts the CV the office swings around the players instead). The
 tray's walls **stop bullets** (sparks, result `"wall"`); players can't reach them anyway.
 
-**The shredder in a match** (`src/game/shredder.js`): 1:30 into a multiplayer match she picks the CV
-up, reads it, shakes her head and feeds it into the shredder; the page goes into the slot over 45 s
+**The shredder** (`src/game/shredder.js`): 1:30 into a multiplayer match, or 1:30 after the intro
+when you play alone, she picks the CV up, reads it, shakes her head and feeds it into the shredder; the page goes into the slot over 45 s
 with paper flecks and a rumble, and **the map shrinks with it** (see "Multiplayer"). Nothing about
 the shredding goes over the network: every screen works out the same cut from the shared match
 clock, so late joiners land on the same cut; only the shredder's catches and deaths are sent, by the
 host (`NET_VERSION` 7). **Death by shredder**: a caught player is pulled into the slot for 1.6 s and
 down between two shafts of spinning steel cutter discs (`src/fx/shredDeath.js`), with a scream,
-confetti in their colour and a torn-paper view for the victim; then the host kills them. In **single player** it is a visual-only demo: press **O** after the intro (again to
-put the CV back) or open the game with `?shred=N`.
+confetti in their colour and a torn-paper view for the victim; then the host kills them. **Alone**
+the same rules apply on your own clock (`src/game/soloShred.js`): the countdown, the cut, caught,
+killed, back 3 s later below the cut; when the page is used up the camera rises to the top view and
+an end card shows "Shredded." with your deaths and the letters you shot (**Untouchable** with no
+deaths) and **Play again** (a whole page, a fresh clock). Press **O** after the intro to make her
+reach right away. Opening an invite replaces it with a real match on a whole page.
 
 | URL option | |
 |---|---|
 | `?office=0` | no office: the old dark backdrop, no tray walls (in a match the shredder still shrinks the map) |
 | `?ambience=0` | office without its soundscape |
-| `?shred=N` | single player: start the visual shred demo N s after the intro |
-| `?shredAfter=N` / `?shredSeconds=N` | on the host: the shredder starts N s into the match / eats the page in N s (counts for everyone), e.g. `?shredAfter=8&shredSeconds=30&target=50` |
+| `?shred=N` | single player: she reaches for the CV N s after the intro instead of 90 (`?shred=0`: right away) |
+| `?shredAfter=N` / `?shredSeconds=N` | on the host: the shredder starts N s into the match / eats the page in N s (counts for everyone; alone they work too), e.g. `?shredAfter=8&shredSeconds=30&target=50` |
 | `?shredCatch=N` | on the host: a caught player dies N s later instead of 1.6 (0.4–20, counts for everyone): a slow-motion shredder death, e.g. `?shredAfter=8&shredSeconds=30&shredCatch=10` |
 
 Tunables live in `src/config.js` → `office` (fog colour, lightmap brightness, her lighting, idle
@@ -485,7 +489,9 @@ src/
                         office wiring (?office= ?ambience= ?shred=, O key, tray walls, shredFx);
                         the match shredder: ?shredAfter= ?shredSeconds=, syncShred, applyCut (PageEater,
                         collision.cutZ, minimap, fallback clip plane), late joiners below the cut;
-                        ?shredCatch=, ShredDeath wiring (slot plane / depth getters)
+                        ?shredCatch=, ShredDeath wiring (slot plane / depth getters); single player:
+                        SoloShred (unless joining as a guest; replaced when an invite opens), O = she
+                        reaches now, shredNow = pvp or solo shred, shared setEndView, eaten counter
   landing.css           front page styles, scoped to `.landing`: Paper & ink and dark palettes (data-theme)
   config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
                         characters: toon / rim, touch controls, graphics presets low / high,
@@ -546,7 +552,8 @@ src/
   ui/minimap.js         page raster + player arrow + dots for other players in sight; greys out the shredded top
   ui/nameTags.js        HTML name tags projected from 3D over other players
   ui/matchHud.js        match bar (first to N, leader, you, shredder NN%), shredder countdown / notices (warn),
-                        end card (winner, table, awards, why it ended, Rematch)
+                        end card (winner, table, awards, why it ended, Rematch); single player: shredBar
+                        (only "shredder NN%"), showSolo (the "Shredded." card, Play again)
   ui/lobby.js           join screen, invite box (pause card), player list with ping (+ "relay", "reconnecting…"),
                         notice feed, saved nickname, per-tab rejoin key (sessionStorage); the storage keys
                         keep the old `playable-cv:` prefix so saved names / rejoins survive the rename
@@ -581,7 +588,11 @@ src/
   game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard;
                         match: end view, rematch spawns spread over the page; the shredder: pvp.shred, host-only
                         shredder catches -> deaths (shredDeath hooks), spawns below the cut, "page used up"
-                        end, countdown
+                        end, countdown; the host starts the match clock when the room opens
+  game/soloShred.js     SoloShred: the shredder alone with the match rules on its own clock (from the end of
+                        the intro, ?shred=N, O = now): caught -> shredDeath -> death -> respawn below the
+                        cut, end card + top view when the page is used up, Play again (restart)
+  game/shredAnnouncer.js ShredAnnouncer: the shredder countdown and notices, shared by pvp.js and soloShred.js
   game/shredder.js      the shredder's timetable from the match clock: shredState (waiting / grab / feeding / done,
                         cutZ, countdown), cutAt, PageEater, spawnClear / SPAWN_LEAD, CATCH_SECONDS / CATCH_REACH (pure JS)
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
