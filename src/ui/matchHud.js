@@ -79,6 +79,7 @@ export class MatchHud {
    * @param {(id:number) => {name:string,color:string}} r.info
    * @param {number} r.round
    * @param {number} r.target
+   * @param {string} [r.why]  "shred": the shredder ate the page before anyone reached the target
    * @param {boolean} r.isHost
    * @param {string} r.hostName
    * @param {number} r.selfId
@@ -88,7 +89,7 @@ export class MatchHud {
     e.card.hidden = false;
     const you = r.winner.id === r.selfId;
     e.title.innerHTML = you ? "You win!" : `<b style="color:${esc(r.winner.color)}">${esc(r.winner.name)}</b> wins`;
-    e.sub.textContent = `Match ${r.round} · first to ${r.target} kills`;
+    e.sub.textContent = r.why === "shred" ? `Match ${r.round} · the CV went through the shredder: most kills wins` : `Match ${r.round} · first to ${r.target} kills`;
     e.body.innerHTML = r.rows
       .map(
         (x, i) =>

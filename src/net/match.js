@@ -1,7 +1,9 @@
 // MP5: the match. First to `target` kills wins; the host referees and starts rematches.
 // Pure JS (no three.js, no DOM): tools/sim-match.mjs plays several matches over a laggy fake link.
 //
-//   host -> all  {t:"match", s:"end",   r, w, sc:[[id, kills, deaths, letters, heads, best]…], aw:[[key, id, value]…]}
+//   host -> all  {t:"match", s:"end",   r, w, sc:[[id, kills, deaths, letters, heads, best]…], aw:[[key, id, value]…], why}
+//                (why: "kills" = someone reached the target, "shred" = the shredder ate the whole page
+//                 first: the leader wins)
 //   host -> all  {t:"match", s:"start", r, u, at, sh, sp:[[id, x, z, yaw]…]} (u = end of spawn protection)
 //   host -> all  {t:"match", s:"go",    r, at, sh}
 //
@@ -60,6 +62,8 @@ export class Match {
     this.scores = [];
     /** [[key, id, value]…] */
     this.awards = [];
+    /** how the last match ended: "kills" | "shred" */
+    this.why = "kills";
     /** host time (ms) the match clock started; null = waiting for the first guest */
     this.startAt = null;
   }
@@ -85,12 +89,27 @@ export class Match {
     if (!this.isHost || !this.playing) return false;
     const r = rows();
     if (!r.some((x) => x.kills >= this.target)) return false;
+    return this._end(r, "kills");
+  }
+
+  /**
+   * End the match now, whatever the score (the shredder ate the page): the leader wins.
+   * @param {() => {id:number, kills:number, deaths:number, letters:number, heads:number, best:number}[]} rows
+   * @param {string} why
+   */
+  finish(rows, why) {
+    if (!this.isHost || !this.playing) return false;
+    return this._end(rows(), why);
+  }
+
+  _end(r, why) {
     const { winner, sorted, awards } = results(r);
     this.phase = "ended";
     this.winner = winner;
+    this.why = why;
     this.scores = sorted.map((x) => [x.id, x.kills, x.deaths, x.letters, x.heads, x.best]);
     this.awards = awards;
-    this.toAll({ t: "match", s: "end", r: this.round, w: winner, sc: this.scores, aw: awards });
+    this.toAll({ t: "match", s: "end", r: this.round, w: winner, sc: this.scores, aw: awards, why });
     this.fx.ended(this);
     return true;
   }
@@ -140,6 +159,7 @@ export class Match {
       this.winner = msg.w;
       this.scores = Array.isArray(msg.sc) ? msg.sc : [];
       this.awards = Array.isArray(msg.aw) ? msg.aw : [];
+      this.why = msg.why === "shred" ? "shred" : "kills";
       this.fx.ended(this);
     } else if (msg.s === "start") {
       this.round = msg.r;
@@ -167,7 +187,7 @@ export class Match {
 
   // ------------------------------------------------------------------ late join
   snapshot() {
-    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards, at: this.startAt, sh: this._sh() };
+    return { p: this.phase, r: this.round, t: this.target, w: this.winner, sc: this.scores, aw: this.awards, at: this.startAt, sh: this._sh(), why: this.why };
   }
 
   applySnapshot(s) {
@@ -181,6 +201,7 @@ export class Match {
       this.winner = s.w;
       this.scores = s.sc || [];
       this.awards = s.aw || [];
+      this.why = s.why === "shred" ? "shred" : "kills";
       this.fx.ended(this);
     } else this.fx.clock?.(this);
   }

@@ -165,6 +165,7 @@ export function createPvp(o) {
           info,
           round: m.round,
           target: m.target,
+          why: m.why,
           isHost: room.isHost,
           hostName: room.players.find((p) => p.host)?.name || "the host",
           selfId: self(),
@@ -377,6 +378,8 @@ export function createPvp(o) {
 
     update(dt) {
       updateShred();
+      // S5: the page is used up before anyone reached the target: the leader wins
+      if (room.isHost && match.playing && shred.phase === "done") match.finish(scoreRows, "shred");
       shredKills();
       if (room.isHost) combat.record(self(), now(), player.core.x, player.core.y, player.core.z, player.core.crouching);
       combat.update();

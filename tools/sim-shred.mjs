@@ -87,4 +87,24 @@ check(died.some((d) => d[0] === "g" && d[1] === 1 && d[2] === 1 && d[3] === "shr
 clock += 3100; hc.update();
 check(hc.get(1).alive && sent.at(-1).t === "respawn", "and respawns 3 s later like any death");
 check(!gc.environmentKill(2, "shred"), "guests can't decide shredder deaths");
+
+// S5: the page is used up first: the match ends, the leader wins (guests and late joiners agree)
+{
+  const out = [];
+  const m = new Match({ isHost: true, target: 10, toAll: (x) => out.push(JSON.parse(JSON.stringify(x))), fx: { ended() {}, started() {} } });
+  const g = new Match({ isHost: false, target: 10, fx: { ended() {}, started() {} } });
+  m.go(0);
+  const rows = () => [
+    { id: 0, kills: 3, deaths: 5, letters: 0, heads: 0, best: 1 },
+    { id: 1, kills: 6, deaths: 2, letters: 4, heads: 1, best: 3 },
+    { id: 2, kills: 6, deaths: 4, letters: 0, heads: 0, best: 2 },
+  ];
+  check(!m.check(rows), "nobody at the target: the match goes on");
+  check(m.finish(rows, "shred") && !m.finish(rows, "shred") && !m.playing, "the host ends it when the page is gone (once)");
+  for (const x of out) g.onMessage(x);
+  const late = new Match({ isHost: false, target: 10, fx: { ended() {}, started() {} } });
+  late.applySnapshot(JSON.parse(JSON.stringify(m.snapshot())));
+  check(m.winner === 1 && g.winner === 1 && late.winner === 1, "the leader wins (most kills; fewest deaths breaks the tie)");
+  check(g.why === "shred" && late.why === "shred" && m.why === "shred", "everyone knows why it ended (end card: the CV went through the shredder)");
+}
 process.exit(ok ? 0 : 1);
