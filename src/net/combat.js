@@ -17,6 +17,9 @@
 //     Per player we also count the kill streak, best streak and headshot kills (end-of-match awards).
 //   - Deaths without a killer (the shredder): {t:"death", v, by:v, h:0, c:"shred"}: a death for
 //     the victim, no kill for anyone. Only the host decides them (environmentKill).
+//   - S7: before that the shredder CATCHES them: {t:"caught", v, c, x, z, u} (u = host time of the
+//     death). Caught players can't move (their own screen) and can't be hurt (no stolen kills);
+//     at u the host kills them (environmentKill). A rematch / death / respawn clears it.
 
 export const COMBAT = {
   maxHp: 100,
@@ -79,6 +82,7 @@ export class Combat {
    * @param {object} o.fx  callbacks for the game:
    *   hurt(victim, by, hp, head, from:{x,z}|null)   died(victim, killer, head, cause?)   respawned(id, {x,z,yaw}, until)
    *   (cause: "shred" for a death without a killer; killer === victim then)
+   *   caught(victim, cause, {x,z}, until)   (S7: the shredder has them; death at `until`)
    *   stats()   (kills / deaths changed)
    * @param {typeof COMBAT} [o.cfg]
    */
@@ -173,15 +177,25 @@ export class Combat {
       if (p) {
         p.hp = 0;
         p.alive = false;
+        p.caught = 0;
       }
       tally(p, msg.by !== msg.v ? k : null, !!msg.h);
       this.fx.died(msg.v, msg.by, !!msg.h, typeof msg.c === "string" ? msg.c : undefined);
       this.fx.stats?.();
       return true;
     }
+    if (msg.t === "caught") {
+      const p = this.players.get(msg.v);
+      if (!p || !Number.isFinite(msg.u)) return true;
+      p.caught = msg.u;
+      p.caughtBy = String(msg.c || "shred");
+      this.fx.caught?.(msg.v, p.caughtBy, { x: Number(msg.x) || 0, z: Number(msg.z) || 0 }, msg.u);
+      return true;
+    }
     if (msg.t === "respawn") {
       const p = this.players.get(msg.v);
       if (p) {
+        p.caught = 0;
         p.hp = this.cfg.maxHp;
         p.alive = true;
         p.prot = msg.u;
@@ -200,7 +214,7 @@ export class Combat {
     }
     const now = this.now();
     const shooter = this.players.get(by), victim = this.players.get(v);
-    if (!shooter || !victim || v === by || !shooter.alive || !victim.alive || victim.prot > now) {
+    if (!shooter || !victim || v === by || !shooter.alive || !victim.alive || victim.prot > now || victim.caught) {
       this.rejected++;
       if (victim?.prot > now) this.rejectedBy.protected++;
       else this.rejectedBy.dead++;
@@ -252,12 +266,34 @@ export class Combat {
     if (!p || !p.alive) return false;
     p.hp = 0;
     p.alive = false;
+    p.caught = 0;
     tally(p, null, false);
     p.respawnAt = this.now() + this.cfg.respawnDelay * 1000;
     this.toAll({ t: "death", v, by: v, h: 0, c: cause });
     this.fx.died(v, v, false, cause);
     this.fx.stats?.();
     return true;
+  }
+
+  /**
+   * Host (S7): the shredder has caught a player: everyone sees them pulled in, and `ms` later
+   * they die (update() calls environmentKill). Only living, uncaught players.
+   * @returns {boolean} true if caught now
+   */
+  catch(v, cause, x, z, ms) {
+    if (!this.isHost || !this.enabled) return false;
+    const p = this.players.get(v);
+    if (!p || !p.alive || p.caught) return false;
+    p.caught = Math.round(this.now() + ms);
+    p.caughtBy = cause;
+    this.toAll({ t: "caught", v, c: cause, x: r2(x), z: r2(z), u: p.caught });
+    this.fx.caught?.(v, cause, { x, z }, p.caught);
+    return true;
+  }
+
+  /** caught by the shredder (being pulled in)? */
+  isCaught(id) {
+    return !!this.players.get(id)?.caught;
   }
 
   /** regen, and (host) respawns. Call every frame or from a timer. */
@@ -268,6 +304,7 @@ export class Combat {
     const c = this.cfg;
     for (const [id, p] of this.players) {
       if (p.alive && p.hp < c.maxHp && now - p.lastHurt > c.regenDelay * 1000) p.hp = Math.min(c.maxHp, p.hp + c.regenRate * dt);
+      if (this.isHost && this.enabled && p.alive && p.caught && now >= p.caught) this.environmentKill(id, p.caughtBy || "shred");
       if (this.isHost && this.enabled && !p.alive && p.respawnAt && now >= p.respawnAt) {
         const s = this.spawnFor(id);
         p.alive = true;
@@ -326,7 +363,7 @@ export class Combat {
 }
 
 function fresh(c) {
-  return { hp: c.maxHp, alive: true, prot: 0, lastHurt: -1e9, kills: 0, deaths: 0, respawnAt: 0, streak: 0, best: 0, heads: 0 };
+  return { hp: c.maxHp, alive: true, prot: 0, lastHurt: -1e9, kills: 0, deaths: 0, respawnAt: 0, streak: 0, best: 0, heads: 0, caught: 0, caughtBy: "" };
 }
 
 /** bookkeeping for a death: victim's deaths, killer's kills / streak / headshot kills */

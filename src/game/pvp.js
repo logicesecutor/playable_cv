@@ -9,7 +9,7 @@ import { Match } from "../net/match.js";
 import { MatchHud } from "../ui/matchHud.js";
 import { FLAG } from "../net/snapshots.js";
 import { findSpawn } from "../world/layout.js";
-import { shredState, gameMetres, spawnClear, SPAWN_LEAD } from "./shredder.js";
+import { shredState, gameMetres, spawnClear, SPAWN_LEAD, CATCH_SECONDS, CATCH_REACH } from "./shredder.js";
 
 /**
  * @param {object} o
@@ -30,6 +30,8 @@ import { shredState, gameMetres, spawnClear, SPAWN_LEAD } from "./shredder.js";
  * @param {(on:boolean) => void} o.endView  end of match: camera up to the top view of the page
  * @param {number} [o.target=10] kills to win
  * @param {(m:Match) => void} [o.onClock]  the match clock started, or a new match began (m.startAt)
+ * @param {{caught(id:number, o:object):void, died(id:number):void, clear(id:number):void, clearAll():void}} [o.shredDeath]
+ *   S7: the shredder's death sequence (fx/shredDeath.js)
  */
 export function createPvp(o) {
   const { room, sync, player, weapon, camera, hud, chud, shots, sfx, world, cfg } = o;
@@ -104,7 +106,19 @@ export function createPvp(o) {
           player.addShake(0.05);
         }
       },
+      caught(v, cause, at, until) {
+        // S7: the shredder has them: pulled in for CATCH_SECONDS, then the host kills them
+        if (v === self()) {
+          player.dead = true; // no more control: the shredder drives the camera now
+          weapon.blocked = true;
+          weapon.releaseTriggers();
+          document.getElementById("crosshair").style.visibility = "hidden";
+        }
+        const p = info(v);
+        o.shredDeath?.caught(v, { self: v === self(), color: p.color, at, until, now: now() });
+      },
       died(v, by, head, cause) {
+        if (cause === "shred") o.shredDeath?.died(v);
         chud.killFeed(info(by), info(v), head, self(), cause);
         o.onDied?.(v, by); // FIRED! over the victim
         if (room.isHost) match.check(scoreRows);
@@ -121,6 +135,7 @@ export function createPvp(o) {
         o.onStats();
       },
       respawned(id, s, until) {
+        o.shredDeath?.clear(id);
         if (id === self()) {
           deadInfo = null;
           player.spawn(s.x, s.z, s.yaw);
@@ -150,6 +165,7 @@ export function createPvp(o) {
     fx: {
       ended(m) {
         combat.enabled = false;
+        o.shredDeath?.clearAll();
         deadInfo = null;
         chud.killcam(null);
         player.dead = true; // the camera belongs to the end view now
@@ -174,6 +190,7 @@ export function createPvp(o) {
         o.onStats();
       },
       started(m) {
+        o.shredDeath?.clearAll();
         o.resetWorld();
         o.letters?.reset();
         combat.resetRound(m.protUntil);
@@ -252,7 +269,8 @@ export function createPvp(o) {
         if (!r?.has) continue;
         z = r.pos.z;
       }
-      if (z < shred.cutZ) combat.environmentKill(id, "shred");
+      // S7: caught first (everyone sees them pulled in), dead CATCH_SECONDS later (combat.update)
+      if (z < shred.cutZ + CATCH_REACH) combat.catch(id, "shred", id === self() ? player.core.x : sync.remotes.get(id).pos.x, z, CATCH_SECONDS * 1000);
     }
   };
 
@@ -397,7 +415,11 @@ export function createPvp(o) {
         shred: shred.phase === "feeding" ? shred.progress : null,
       });
       shredHud();
-      if (deadInfo && match.playing) {
+      if (deadInfo && match.playing && deadInfo.cause === "shred") {
+        // in the shredder: the camera stays in the cutters (fx/shredDeath.js), just the countdown
+        const left = COMBAT.respawnDelay - (now() - deadInfo.at) / 1000;
+        chud.killcam({ name: "the shredder", color: "#ff5a36", head: false, left, shredded: true });
+      } else if (deadInfo && match.playing) {
         // killcam: rise a little behind our body and watch the killer
         const left = COMBAT.respawnDelay - (now() - deadInfo.at) / 1000;
         const k = deadInfo.cause === "shred" ? { name: "the shredder", color: "#ff5a36" } : info(deadInfo.killer);

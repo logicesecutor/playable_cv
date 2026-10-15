@@ -88,6 +88,33 @@ clock += 3100; hc.update();
 check(hc.get(1).alive && sent.at(-1).t === "respawn", "and respawns 3 s later like any death");
 check(!gc.environmentKill(2, "shred"), "guests can't decide shredder deaths");
 
+// S7: caught first, dead 1.6 s later; nobody can shoot a caught player for the kill
+{
+  let t = 0;
+  const out = [], seen = [];
+  const h = new Combat({ isHost: true, selfId: () => 0, now: () => t, toAll: (m) => out.push(JSON.parse(JSON.stringify(m))), spawnFor: () => ({ x: 1, z: 240, yaw: 0 }),
+    fx: { hurt() {}, died: (v, by, hd, c) => seen.push(["died", v, c]), caught: (v, c) => seen.push(["caught", v, c]), respawned() {}, stats() {} } });
+  const g = new Combat({ isHost: false, selfId: () => 1, now: () => t, toHost() {}, fx: { hurt() {}, died: (v, by, hd, c) => seen.push(["g-died", v, c]), caught: (v, c, at, u) => seen.push(["g-caught", v, c, at.x, at.z, u]), respawned() {}, stats() {} } });
+  h.syncPlayers([0, 1]); g.syncPlayers([0, 1]);
+  check(h.catch(1, "shred", 12.345, 40.5, 1600) && !h.catch(1, "shred", 0, 0, 1600) && h.isCaught(1), "the host catches a player once");
+  for (const m of out) g.onMessage(m, 0);
+  check(g.isCaught(1) && seen.some((x) => x[0] === "g-caught" && x[1] === 1 && x[2] === "shred" && x[3] === 12.35 && x[4] === 40.5 && x[5] === 1600), "guests hear who was caught, where, and when they die");
+  h.localHit({ victim: 1, head: true, dist: 5, point: { x: 0, y: 1, z: 0 }, viewTime: 0 });
+  check(h.get(1).hp === 100 && h.get(0).kills === 0, "a caught player can't be shot (no stolen kills)");
+  t = 1500; h.update();
+  check(h.get(1).alive, "still being pulled in at 1.5 s");
+  t = 1600; h.update();
+  check(!h.get(1).alive && !h.isCaught(1) && h.get(1).deaths === 1 && h.get(0).kills === 0 && seen.some((x) => x[0] === "died" && x[1] === 1 && x[2] === "shred"), "dead at 1.6 s: a death, no kill");
+  for (const m of out.slice(1)) g.onMessage(m, 0);
+  check(!g.isCaught(1) && !g.get(1).alive && g.get(1).deaths === 1, "the guest agrees");
+  t = 1600 + 3100; h.update();
+  check(h.get(1).alive && !h.isCaught(1), "respawns uncaught");
+  h.catch(0, "shred", 0, 0, 1600);
+  h.resetRound(t + 2000);
+  t += 5000; h.update();
+  check(h.get(0).alive && h.get(0).deaths === 0 && !h.isCaught(0), "a rematch frees a caught player (no death carried over)");
+}
+
 // S5: the page is used up first: the match ends, the leader wins (guests and late joiners agree)
 {
   const out = [];
