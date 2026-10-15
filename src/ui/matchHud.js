@@ -16,7 +16,11 @@ export class MatchHud {
       awards: $("ec-awards"),
       rematch: $("ec-rematch"),
       wait: $("ec-wait"),
+      warn: $("shred-warn"),
+      warnTitle: document.querySelector("#shred-warn .sw-title"),
+      warnSub: document.querySelector("#shred-warn .sw-sub"),
     };
+    this._warn = "";
     /** host clicked Rematch */
     this.onRematch = null;
     this._click = (e) => {
@@ -30,7 +34,8 @@ export class MatchHud {
   }
 
   /**
-   * @param {{target:number, leader:{name:string,color:string,kills:number}|null, you:number, round:number}} s
+   * @param {{target:number, leader:{name:string,color:string,kills:number}|null, you:number, round:number, shred?:number|null}} s
+   *   shred: the shredder's progress 0..1 while it eats the page (null otherwise)
    */
   bar(s) {
     const key = JSON.stringify(s);
@@ -40,7 +45,30 @@ export class MatchHud {
     const lead = s.leader
       ? `<span class="mb-lead"><b style="color:${esc(s.leader.color)}">${esc(s.leader.name)}</b> ${s.leader.kills}</span>`
       : `<span class="mb-lead">no kills yet</span>`;
-    this.el.bar.innerHTML = `<span class="mb-target">First to ${s.target}</span>${lead}<span class="mb-you">you ${s.you}</span>`;
+    const shred = s.shred != null ? `<span class="mb-shred">shredder ${Math.floor(s.shred * 100)}%</span>` : "";
+    this.el.bar.innerHTML = `<span class="mb-target">First to ${s.target}</span>${lead}<span class="mb-you">you ${s.you}</span>${shred}`;
+  }
+
+  /**
+   * The shredder's announcement under the match bar: the countdown, or a short message; null hides.
+   * @param {{title:string, count?:number, sub?:string}|null} w
+   */
+  warn(w) {
+    const e = this.el;
+    const key = w ? `${w.title}|${w.count ?? ""}|${w.sub ?? ""}` : "";
+    if (key === this._warn) return;
+    const tick = w?.count != null && !this._warn.startsWith(`${w.title}|${w.count}|`);
+    this._warn = key;
+    e.warn.hidden = !w;
+    if (!w) return;
+    e.warnTitle.innerHTML = esc(w.title) + (w.count != null ? `<b>${w.count}</b>` : "");
+    e.warnSub.textContent = w.sub ?? "";
+    e.warnSub.hidden = !w.sub;
+    if (tick) {
+      e.warn.classList.remove("tick");
+      void e.warn.offsetWidth; // restart the animation
+      e.warn.classList.add("tick");
+    }
   }
 
   /**
@@ -90,6 +118,7 @@ export class MatchHud {
     this.el.rematch.removeEventListener("click", this._click);
     this.el.card.removeEventListener("click", this._stop);
     this.hideEnd();
+    this.warn(null);
     this.el.bar.hidden = true;
     this._last = "";
   }

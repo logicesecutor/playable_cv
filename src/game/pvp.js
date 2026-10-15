@@ -200,6 +200,8 @@ export function createPvp(o) {
   const WAITING = shredState(null, cfg.shredder, world.size.D, bite);
   /** where the shredder is on this screen; frozen while a match is over */
   let shred = WAITING;
+  /** the announcement shown for a few seconds after the phase changes */
+  let notice = null, noticeUntil = 0, lastPhase = "waiting", lastCount = null;
   const updateShred = () => {
     if (!match.playing) return; // the end screen keeps the page as it was
     // a guest's clock is the host's only once it has synced (the first pong)
@@ -227,6 +229,37 @@ export function createPvp(o) {
   mhud.onRematch = () => {
     if (!room.isHost || match.playing) return;
     match.rematch(rematchSpawns(), now() + COMBAT.protection * 1000, now());
+  };
+
+  /** the countdown and the shredder's announcements (S3) */
+  const shredHud = () => {
+    const t = performance.now();
+    if (!match.playing) {
+      lastPhase = shred.phase;
+      lastCount = null;
+      notice = null;
+      return mhud.warn(null);
+    }
+    if (shred.phase !== lastPhase) {
+      // only fresh changes (a late joiner doesn't need the news of 30 s ago)
+      const fresh = shred.t != null && (shred.phase === "grab" ? shred.t < 3 : shred.phase === "feeding" ? shred.t - cfg.shredder.grab < 3 : true);
+      if (shred.phase === "grab" && fresh) notice = { title: "She picked up your CV", sub: "the shredder is next: get away from the top of the page" };
+      else if (shred.phase === "feeding" && fresh) notice = { title: "The shredder is eating the page", sub: "anything above the cut is gone: stay ahead of it" };
+      else notice = null;
+      noticeUntil = t + 4500;
+      lastPhase = shred.phase;
+    }
+    if (shred.countdown != null) {
+      const count = Math.ceil(shred.countdown);
+      if (count !== lastCount && count >= 1) sfx.countdown?.(false);
+      lastCount = count;
+      return mhud.warn({ title: "She's reaching for your CV", count: Math.max(1, count), sub: "the top of the page goes first" });
+    }
+    if (lastCount != null) {
+      sfx.countdown?.(true); // zero: she grabs it
+      lastCount = null;
+    }
+    mhud.warn(notice && t < noticeUntil ? notice : null);
   };
 
   // ---------------------------------------------------------------- weapon <-> network
@@ -330,7 +363,11 @@ export function createPvp(o) {
       // match bar: target, leader, our kills
       let leader = null;
       for (const [id, p] of combat.players) if (p.kills > 0 && (!leader || p.kills > leader.kills)) leader = { ...info(id), kills: p.kills };
-      mhud.bar({ target: match.target, leader: leader && { name: leader.name, color: leader.color, kills: leader.kills }, you: me?.kills ?? 0, round: match.round });
+      mhud.bar({
+        target: match.target, leader: leader && { name: leader.name, color: leader.color, kills: leader.kills }, you: me?.kills ?? 0, round: match.round,
+        shred: shred.phase === "feeding" ? shred.progress : null,
+      });
+      shredHud();
       if (deadInfo && match.playing) {
         // killcam: rise a little behind our body and watch the killer
         const left = COMBAT.respawnDelay - (now() - deadInfo.at) / 1000;

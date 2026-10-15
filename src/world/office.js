@@ -337,8 +337,9 @@ export class Office {
         this.play("Shred", t < 0.3 ? 0.3 : 0);
         this.actions.Shred.time = t; // a late joiner sees her mid-way through, like everyone else
       } else this.play("Type", 0); // that part is over: she's typing while the shredder works
-    } else if (this.current === this.actions.Shred && t < dur && Math.abs(this.current.time - t) > 0.3) {
-      this.current.time = t; // our clock slewed (or the tab slept): catch up
+    } else if (this.current === this.actions.Shred) {
+      if (t >= dur) this.play("Type", 0.4); // (a slow frame rate can leave the clip behind the clock)
+      else if (Math.abs(this.current.time - t) > 0.3) this.current.time = t; // our clock slewed (or the tab slept): catch up
     }
   }
 

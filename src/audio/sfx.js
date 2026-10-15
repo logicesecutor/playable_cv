@@ -312,6 +312,23 @@ export class Sfx {
     this.footstep(true);
   }
 
+  /** the shredder countdown: a short blip each second, a longer, higher one at zero */
+  countdown(last) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.value = last ? 1320 : 880;
+    const g = this.ctx.createGain();
+    const len = last ? 0.45 : 0.12;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(last ? 0.35 : 0.25, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + len + 0.02);
+  }
+
   // ------------------------------------------------------------------ building blocks
 
   click(t, freq, gain, len) {
