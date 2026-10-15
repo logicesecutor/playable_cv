@@ -58,7 +58,7 @@ export class CombatHud {
     this.el.killcam.hidden = !info;
     if (!info) return;
     this.el.killer.textContent = info.name;
-    this.el.killer.previousSibling.textContent = info.shredded ? "Shredded by " : "Killed by ";
+    this.el.killer.previousSibling.textContent = info.shredded ? "Went through " : "Killed by ";
     this.el.killer.style.color = info.color;
     this.el.head.textContent = info.head ? " · headshot" : "";
     this.el.count.textContent = String(Math.max(0, Math.ceil(info.left)));

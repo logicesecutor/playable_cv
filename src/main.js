@@ -6,7 +6,7 @@ import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
 import { Office, clipPage } from "./world/office.js";
-import { PageEater } from "./game/shredder.js";
+import { PageEater, spawnClear, SPAWN_LEAD } from "./game/shredder.js";
 import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
@@ -628,7 +628,14 @@ function startGame(pdf, online = {}) {
     if (!playing) {
       if (!intro.update(dt)) {
         scene.fog = fog;
-        const at = online.resume || { x: world.spawn.x, z: world.spawn.z, yaw: 0 };
+        let at = online.resume || { x: world.spawn.x, z: world.spawn.z, yaw: 0 };
+        const cut = pvp?.shred.cutZ ?? 0;
+        if (!spawnClear(at.z, cut)) {
+          // joined while the shredder is eating the page: start well below the cut, facing away
+          const { W, D } = world.size;
+          const s = findSpawn(world.entities.filter((e) => e.alive), W, D, config.player.radius, { x: at.x, z: Math.min(D - 3, cut + SPAWN_LEAD + 10) });
+          at = { x: s.x, z: s.z, yaw: Math.PI };
+        }
         player.spawn(at.x, at.z, at.yaw);
         setPlaying(true);
       }

@@ -345,6 +345,7 @@ export function createPvp(o) {
 
     /** the shredder on this screen: {phase, t, progress, cutZ, countdown} (game/shredder.js) */
     get shred() {
+      updateShred(); // (also during our intro, before update() runs)
       return shred;
     },
 
