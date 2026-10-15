@@ -9,7 +9,7 @@ import { Match } from "../net/match.js";
 import { MatchHud } from "../ui/matchHud.js";
 import { FLAG } from "../net/snapshots.js";
 import { findSpawn } from "../world/layout.js";
-import { shredState, gameMetres } from "./shredder.js";
+import { shredState, gameMetres, spawnClear, SPAWN_LEAD } from "./shredder.js";
 
 /**
  * @param {object} o
@@ -51,13 +51,21 @@ export function createPvp(o) {
     }
     return spots;
   };
-  /** the free spot farthest from every living enemy */
+  /** the free spot farthest from every living enemy (and well below the shredder's cut) */
   const spawnFor = (id) => {
+    const cut = shred.cutZ;
+    const { W: PW, D: PD } = world.size;
+    const safe = spawnSpots().filter((s) => spawnClear(s.z, cut));
+    if (cut > 0 && !safe.length) {
+      // only a strip of the page is left: somewhere in the middle of it
+      const s = findSpawn(world.entities.filter((e) => e.alive !== false), PW, PD, cfg.player.radius, { x: PW / 2, z: Math.min(PD - 3, (cut + SPAWN_LEAD / 2 + PD) / 2) });
+      return { x: s.x, z: s.z, yaw: Math.PI }; // facing down the page, away from the shredder
+    }
     const enemies = [];
     if (id !== self() && combat.get(self())?.alive) enemies.push({ x: player.core.x, z: player.core.z });
     for (const r of sync.remotes.values()) if (r.id !== id && r.has && !r.dead) enemies.push({ x: r.pos.x, z: r.pos.z });
     let best = null, bestD = -1;
-    for (const s of spawnSpots()) {
+    for (const s of safe) {
       let d = Infinity;
       for (const e of enemies) d = Math.min(d, Math.hypot(s.x - e.x, s.z - e.z));
       d += Math.random() * 3; // don't always pick the very same corner
@@ -96,13 +104,13 @@ export function createPvp(o) {
           player.addShake(0.05);
         }
       },
-      died(v, by, head) {
-        chud.killFeed(info(by), info(v), head, self());
+      died(v, by, head, cause) {
+        chud.killFeed(info(by), info(v), head, self(), cause);
         o.onDied?.(v, by); // FIRED! over the victim
         if (room.isHost) match.check(scoreRows);
         if (by === self() && v !== self()) hud.hitMarker("kill");
         if (v === self()) {
-          deadInfo = { killer: by, head, at: now() };
+          deadInfo = { killer: by, head, at: now(), cause };
           player.dead = true;
           weapon.blocked = true;
           weapon.releaseTriggers();
@@ -231,6 +239,22 @@ export function createPvp(o) {
     match.rematch(rematchSpawns(), now() + COMBAT.protection * 1000, now());
   };
 
+  /** host: whoever is above the cut goes through the shredder (S4) */
+  const shredKills = () => {
+    if (!room.isHost || !match.playing || shred.cutZ <= 0) return;
+    for (const [id, p] of combat.players) {
+      if (!p.alive) continue;
+      let z;
+      if (id === self()) z = player.core.z;
+      else {
+        const r = sync.remotes.get(id);
+        if (!r?.has) continue;
+        z = r.pos.z;
+      }
+      if (z < shred.cutZ) combat.environmentKill(id, "shred");
+    }
+  };
+
   /** the countdown and the shredder's announcements (S3) */
   const shredHud = () => {
     const t = performance.now();
@@ -353,6 +377,7 @@ export function createPvp(o) {
 
     update(dt) {
       updateShred();
+      shredKills();
       if (room.isHost) combat.record(self(), now(), player.core.x, player.core.y, player.core.z, player.core.crouching);
       combat.update();
       const me = combat.get(self());
@@ -371,8 +396,8 @@ export function createPvp(o) {
       if (deadInfo && match.playing) {
         // killcam: rise a little behind our body and watch the killer
         const left = COMBAT.respawnDelay - (now() - deadInfo.at) / 1000;
-        const k = info(deadInfo.killer);
-        chud.killcam({ name: k.name, color: k.color, head: deadInfo.head, left });
+        const k = deadInfo.cause === "shred" ? { name: "the shredder", color: "#ff5a36" } : info(deadInfo.killer);
+        chud.killcam({ name: k.name, color: k.color, head: deadInfo.head, left, shredded: deadInfo.cause === "shred" });
         const r = sync.remotes.get(deadInfo.killer);
         if (r?.has) camTarget.set(r.pos.x, r.pos.y + 1.4, r.pos.z);
         else camTarget.set(player.core.x, 0, player.core.z - 0.01);

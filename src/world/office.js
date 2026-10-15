@@ -36,6 +36,27 @@ import { getModel } from "../assets/models.js";
 import { cutAt } from "../game/shredder.js";
 
 /**
+ * Clip the page's own materials (paper, letters, rules) against a plane (null: stop). Also used
+ * by main.js when there is no animated office to do it (?office=0, or the placeholder office).
+ * @param {{root:THREE.Object3D}} world
+ * @param {THREE.Plane|null} plane  what's on its negative side is hidden
+ * @param {THREE.Object3D} [skip]   not this subtree (the office, if it hangs under the world)
+ */
+export function clipPage(world, plane, skip) {
+  const planes = plane ? [plane] : null;
+  const seen = new Set();
+  world.root.traverse((o) => {
+    if (!o.isMesh || o === skip) return;
+    for (const m of [o.material].flat()) {
+      if (seen.has(m)) continue;
+      seen.add(m);
+      m.clippingPlanes = planes;
+      m.needsUpdate = true;
+    }
+  });
+}
+
+/**
  * The game's version of an office.glb material:
  * - Baked_* (bake_office.py): colour + light are in the texture -> unlit, so the office looks
  *   the same however it swings around the page
@@ -391,17 +412,7 @@ export class Office {
   /** clip the page's own materials (paper, letters, rules) against a plane, or stop (null) */
   setPageClip(plane) {
     this._clipOn = !!plane;
-    const planes = plane ? [plane] : null;
-    const seen = new Set();
-    this.world.root.traverse((o) => {
-      if (!o.isMesh || o === this.root) return;
-      for (const m of [o.material].flat()) {
-        if (seen.has(m)) continue;
-        seen.add(m);
-        m.clippingPlanes = planes;
-        m.needsUpdate = true;
-      }
-    });
+    clipPage(this.world, plane, this.root);
   }
 
   /** root.matrix = T(page centre) · S(K) · inverse(anchor relative to the office content) */

@@ -9,6 +9,10 @@
 //            `seconds`; cutZ is where the cut is: everything with z < cutZ is gone
 //   done     the page is used up (the host ends the match: the leader wins)
 //
+// What the cut does (S4): letters whose middle is above it are gone (PageEater, on every screen
+// from the same clock), the paper there stops catching bullets (CollisionWorld.cutZ), nobody
+// respawns near it (spawnClear) and the host kills anyone standing above it (game/pvp.js).
+//
 // Pure JS (no three.js, no DOM): tools/sim-shred.mjs tests it.
 
 /** real metres -> game metres (1 PDF point = cfg.metersPerPt game metres) */
@@ -24,6 +28,43 @@ export const gameMetres = (cfg) => cfg.metersPerPt / (0.0254 / 72);
 export function cutAt(progress, D, bite) {
   return bite + Math.max(0, Math.min(1, progress)) * (D - bite);
 }
+
+/** how far below the cut a respawn must be (game metres): the cut moves ~5.4 m/s at 45 s */
+export const SPAWN_LEAD = 30;
+
+/** a spawn spot is fine if it is well below the cut */
+export const spawnClear = (z, cutZ) => cutZ <= 0 || z > cutZ + SPAWN_LEAD;
+
+/**
+ * Eats the letters as the cut moves down the page: each letter goes once the cut passes its
+ * middle. Sorted once, so a frame only looks at the letters the cut just passed. A smaller cutZ
+ * (a rematch) starts over: the world reset has already brought the letters back.
+ */
+export class PageEater {
+  /**
+   * @param {{box:{minZ:number,maxZ:number}}[]} entities
+   * @param {(e:any) => void} kill  remove a letter (no score, no network: every screen does it)
+   */
+  constructor(entities, kill) {
+    this.list = [...entities].sort((a, b) => mid(a) - mid(b));
+    this.kill = kill;
+    this.next = 0;
+    this.cutZ = 0;
+  }
+
+  /** @returns {number} letters eaten this call */
+  update(cutZ) {
+    if (cutZ < this.cutZ) this.next = 0;
+    this.cutZ = cutZ;
+    let n = 0;
+    while (this.next < this.list.length && mid(this.list[this.next]) < cutZ) {
+      this.kill(this.list[this.next++]);
+      n++;
+    }
+    return n;
+  }
+}
+const mid = (e) => (e.box.minZ + e.box.maxZ) / 2;
 
 /**
  * @param {number|null} elapsed match seconds (null: the match clock hasn't started)

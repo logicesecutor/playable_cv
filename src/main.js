@@ -5,7 +5,8 @@ import { enterLandscapeFullscreen, onFullscreenChange } from "./input/fullscreen
 import { loadPdfFile, loadPdfBytes } from "./pdf/loadPdf.js";
 import { buildWorld } from "./world/buildWorld.js";
 import { Intro } from "./world/intro.js";
-import { Office } from "./world/office.js";
+import { Office, clipPage } from "./world/office.js";
+import { PageEater } from "./game/shredder.js";
 import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
@@ -226,6 +227,7 @@ function startGame(pdf, online = {}) {
   renderer.shadowMap.type = gfx.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
+  renderer.localClippingEnabled = true; // the shredder's cut (office.setPageClip / clipPage)
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0b0e);
@@ -240,7 +242,6 @@ function startGame(pdf, online = {}) {
     scene.add(office.root);
     scene.background = new THREE.Color(config.office.background);
     camera.far = config.office.far;
-    renderer.localClippingEnabled = true; // the shredder's cut (visual only, office.setPageClip)
   }
   // the office's soundscape (starts with the audio, after the first click; ?ambience=0 = off)
   const ambience = office && new URLSearchParams(location.search).get("ambience") !== "0" ? new OfficeAmbience(sfx, office, config) : null;
@@ -271,6 +272,10 @@ function startGame(pdf, online = {}) {
   const dust = new ParticleSystem(Math.round(2500 * gfx.particles), { gravity: -0.3, drag: 1.8 });
   scene.add(debris.mesh, sparks.points, dust.points);
   const destruction = new Destruction({ world, collision, debris, sparks, dust, sfx, pdf, cfg: config });
+  // multiplayer: the shredder eats the letters above its cut on every screen (game/shredder.js)
+  const eater = new PageEater(world.entities, (e) => destruction.silentKill(e));
+  const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  let ownClip = false; // we clip the page ourselves (no animated office to do it)
   const weapon = new Weapon({ camera, scene, player, collision, destruction, sfx, cfg: config });
   const minimap = new Minimap($("minimap"), pdf.raster, world.size);
   const hud = new Hud(config, { touch: touchMode });
@@ -573,6 +578,24 @@ function startGame(pdf, online = {}) {
   };
   let disposed = false;
 
+  /**
+   * The shredder's cut in this game (S4): letters above it go, the paper there stops catching
+   * bullets, the minimap greys it out. The animated office hides what went into the shredder;
+   * without one (?office=0, placeholder) a plane across the page does it.
+   */
+  const applyCut = (cutZ) => {
+    if (eater.update(cutZ)) hud.integrity(destruction);
+    collision.cutZ = cutZ > 0 ? cutZ : -Infinity;
+    minimap.cutZ = cutZ;
+    const need = cutZ > 0 && !office?.shred.feeding;
+    if (need) cutPlane.constant = -cutZ; // keeps z >= cutZ
+    if (need !== ownClip) {
+      ownClip = need;
+      // (handing back: the office's own plane, if it is clipping by now)
+      clipPage(world, need ? cutPlane : office?._clipOn ? office.shred.plane : null, office?.root);
+    }
+  };
+
   /** paper flecks along the shredder's cut line, and a rumble for players near it (visual only) */
   const shredFx = (dt, playing) => {
     const s = office.shred;
@@ -635,6 +658,7 @@ function startGame(pdf, online = {}) {
       collision.walls = office.cvInTray ? trayWalls : NO_WALLS;
       shredFx(dt, playing);
     }
+    if (pvp) applyCut(pvp.shred.cutZ);
     chud.update(dt);
     lastFrameAt = performance.now();
     sfx.updateListener(camera);

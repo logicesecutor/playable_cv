@@ -15,6 +15,8 @@
 //   - MP5: `enabled` is false between matches (no damage, no respawns). Guest hits carry the match
 //     round `r`; the host drops hits fired in an earlier round (still in flight at a rematch).
 //     Per player we also count the kill streak, best streak and headshot kills (end-of-match awards).
+//   - Deaths without a killer (the shredder): {t:"death", v, by:v, h:0, c:"shred"}: a death for
+//     the victim, no kill for anyone. Only the host decides them (environmentKill).
 
 export const COMBAT = {
   maxHp: 100,
@@ -75,7 +77,8 @@ export class Combat {
    * @param {(msg:any) => void} [o.toAll]            host
    * @param {(id:number) => {x:number,z:number,yaw:number}} [o.spawnFor]   host: where to respawn a player
    * @param {object} o.fx  callbacks for the game:
-   *   hurt(victim, by, hp, head, from:{x,z}|null)   died(victim, killer, head)   respawned(id, {x,z,yaw}, until)
+   *   hurt(victim, by, hp, head, from:{x,z}|null)   died(victim, killer, head, cause?)   respawned(id, {x,z,yaw}, until)
+   *   (cause: "shred" for a death without a killer; killer === victim then)
    *   stats()   (kills / deaths changed)
    * @param {typeof COMBAT} [o.cfg]
    */
@@ -172,7 +175,7 @@ export class Combat {
         p.alive = false;
       }
       tally(p, msg.by !== msg.v ? k : null, !!msg.h);
-      this.fx.died(msg.v, msg.by, !!msg.h);
+      this.fx.died(msg.v, msg.by, !!msg.h, typeof msg.c === "string" ? msg.c : undefined);
       this.fx.stats?.();
       return true;
     }
@@ -234,6 +237,27 @@ export class Combat {
       this.toAll(msg);
       this.fx.hurt(v, by, hp, head, from ? { x: from.x, z: from.z } : null);
     }
+  }
+
+  /**
+   * Host: a death nobody scores (the shredder ate the floor under them). Spawn protection
+   * doesn't help.
+   * @param {number} v
+   * @param {string} cause
+   * @returns {boolean} true if it killed
+   */
+  environmentKill(v, cause) {
+    if (!this.isHost || !this.enabled) return false;
+    const p = this.players.get(v);
+    if (!p || !p.alive) return false;
+    p.hp = 0;
+    p.alive = false;
+    tally(p, null, false);
+    p.respawnAt = this.now() + this.cfg.respawnDelay * 1000;
+    this.toAll({ t: "death", v, by: v, h: 0, c: cause });
+    this.fx.died(v, v, false, cause);
+    this.fx.stats?.();
+    return true;
   }
 
   /** regen, and (host) respawns. Call every frame or from a timer. */

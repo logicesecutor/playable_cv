@@ -3,7 +3,8 @@
 // shared clock alone, late joiners included.
 //
 //   npm run sim:shred
-import { shredState, cutAt, gameMetres } from "../src/game/shredder.js";
+import { shredState, cutAt, gameMetres, PageEater, spawnClear, SPAWN_LEAD } from "../src/game/shredder.js";
+import { Combat } from "../src/net/combat.js";
 import { Match } from "../src/net/match.js";
 import { config } from "../src/config.js";
 
@@ -47,4 +48,43 @@ msgs.length = 0;
 host.rematch([[0, 1, 1, 0]], 90000, 88000);
 for (const m of msgs) guest.onMessage(m);
 check(guest.startAt === 88000 && guest.shred.after === 20 && shredState(guest.elapsed(88000), { ...S, ...guest.shred }, D, bite).phase === "waiting", "a rematch restarts the clock: the CV is back in the tray");
+
+// S4: the page eater (every screen eats the same letters, in order, once)
+let seed = 7;
+const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const letters = Array.from({ length: 2000 }, (_, id) => { const z = rand() * (D - 4); return { id, alive: true, box: { minZ: z, maxZ: z + 1 + rand() * 3 } }; });
+const eaten = [];
+const eater = new PageEater(letters, (e) => { if (!e.alive) eaten.push(-1); e.alive = false; eaten.push(e.id); });
+let lastCut = 0, wrong = 0;
+for (let e = 0; e <= 160; e += 0.1) {
+  const c = shredState(e, S, D, bite).cutZ;
+  eater.update(c);
+  for (const L of letters) if ((L.box.minZ + L.box.maxZ) / 2 < c === L.alive) wrong++;
+  lastCut = c;
+}
+check(wrong === 0 && !eaten.includes(-1) && eaten.length === letters.length, `page eater: every letter goes once, exactly when the cut passes its middle (${eaten.length} eaten)`);
+for (const L of letters) L.alive = true; // rematch: the world reset brings them back
+eaten.length = 0;
+eater.update(0);
+eater.update(cutAt(0.25, D, bite));
+check(eaten.length > 0 && letters.every((L) => ((L.box.minZ + L.box.maxZ) / 2 < cutAt(0.25, D, bite)) !== L.alive), "after a rematch the eater starts over");
+check(spawnClear(10, 0) && !spawnClear(50, 30) && spawnClear(30 + SPAWN_LEAD + 1, 30), `spawns: anywhere before the cut, then only ${SPAWN_LEAD} m+ below it`);
+
+// S4: deaths without a killer (the host only; a death, no kill)
+const sent = [];
+const died = [];
+let clock = 0;
+const hc = new Combat({ isHost: true, selfId: () => 0, now: () => clock, toAll: (m) => sent.push(m), spawnFor: () => ({ x: 1, z: 200, yaw: 0 }),
+  fx: { hurt() {}, died: (v, by, h, c) => died.push([v, by, c]), respawned() {}, stats() {} } });
+const gc = new Combat({ isHost: false, selfId: () => 1, now: () => clock, toHost() {}, fx: { hurt() {}, died: (v, by, h, c) => died.push(["g", v, by, c]), respawned() {}, stats() {} } });
+hc.syncPlayers([0, 1, 2]); gc.syncPlayers([0, 1, 2]);
+hc.get(1).prot = 1e9; // spawn protection doesn't help
+check(hc.environmentKill(1, "shred") && !hc.environmentKill(1, "shred"), "the host shreds a player once (protection or not)");
+for (const m of sent) gc.onMessage(JSON.parse(JSON.stringify(m)), 0);
+const hp = hc.get(1), gp = gc.get(1);
+check(hp.deaths === 1 && gp.deaths === 1 && [...hc.players.values()].every((p) => p.kills === 0) && [...gc.players.values()].every((p) => p.kills === 0), "it counts as a death, and nobody gets the kill (host and guest agree)");
+check(died.some((d) => d[0] === "g" && d[1] === 1 && d[2] === 1 && d[3] === "shred"), "guests hear the cause (kill feed: went through the shredder)");
+clock += 3100; hc.update();
+check(hc.get(1).alive && sent.at(-1).t === "respawn", "and respawns 3 s later like any death");
+check(!gc.environmentKill(2, "shred"), "guests can't decide shredder deaths");
 process.exit(ok ? 0 : 1);

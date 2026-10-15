@@ -58,16 +58,27 @@ export class CombatHud {
     this.el.killcam.hidden = !info;
     if (!info) return;
     this.el.killer.textContent = info.name;
+    this.el.killer.previousSibling.textContent = info.shredded ? "Shredded by " : "Killed by ";
     this.el.killer.style.color = info.color;
     this.el.head.textContent = info.head ? " · headshot" : "";
     this.el.count.textContent = String(Math.max(0, Math.ceil(info.left)));
   }
 
-  /** a line in the kill feed: killer ▸ victim */
-  killFeed(k, v, head, selfId) {
+  /** a line in the kill feed: killer ▸ victim (cause "shred": victim went through the shredder) */
+  killFeed(k, v, head, selfId, cause) {
     const li = document.createElement("li");
     li.className = "kill";
     if (k.id === selfId || v.id === selfId) li.classList.add("me");
+    if (cause === "shred") {
+      const b = document.createElement("b");
+      b.textContent = v.name;
+      b.style.color = v.color;
+      const what = document.createElement("span");
+      what.className = "kf-icon";
+      what.textContent = " went through the shredder";
+      li.append(b, what);
+      return this._feed(li);
+    }
     const a = document.createElement("b");
     a.textContent = k.name;
     a.style.color = k.color;
@@ -78,6 +89,10 @@ export class CombatHud {
     b.textContent = v.name;
     b.style.color = v.color;
     li.append(a, mid, b);
+    this._feed(li);
+  }
+
+  _feed(li) {
     const feed = this.el.feed;
     feed.append(li);
     while (feed.children.length > 6) feed.firstElementChild.remove();
