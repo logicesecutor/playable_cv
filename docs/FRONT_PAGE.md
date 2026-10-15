@@ -134,6 +134,9 @@ initHunters({ isActive: () => !screens.upload.hidden });
   sub-path), wraps it in a `File` and runs the normal `start(file)` flow. On failure: "Couldn't load
   the sample CV. Drop your own PDF instead."
 - `fail()` scrolls `#upload-error` into view, since the drop zone may be off screen.
+- Back from a game: **Home** (pause card, end card; `src/ui/leave.js`) disposes the game (a host's
+  room closes, its guests come back here with "The host left the game."), drops `#join=` from the
+  URL, hides `#upload-error` and calls `show("upload")`. See README "Leaving a game".
 
 ## Reduced motion
 

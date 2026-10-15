@@ -9,6 +9,7 @@ import { Office, clipPage } from "./world/office.js";
 import { PageEater, spawnClear, SPAWN_LEAD } from "./game/shredder.js";
 import { ShredDeath } from "./fx/shredDeath.js";
 import { SoloShred } from "./game/soloShred.js";
+import { LeaveControl } from "./ui/leave.js";
 import { OfficeAmbience } from "./audio/officeAmbience.js";
 import { PlayerController } from "./player/playerController.js";
 import { CollisionWorld } from "./world/collision.js";
@@ -619,6 +620,21 @@ function startGame(pdf, online = {}) {
   };
   let disposed = false;
 
+  // Home (pause card, end card): close the game, back to picking a CV. A host's room closes too
+  // (game.dispose -> room.leave: the guests get "The host left the game."); a host with others
+  // in the game is asked first (ui/leave.js)
+  const leave = new LeaveControl({
+    othersAffected: () => (room?.isHost ? room.players.filter((p) => !p.host).length : 0),
+    onLeave: () => {
+      game?.dispose();
+      game = null;
+      document.exitPointerLock?.();
+      clearJoinFromUrl();
+      errorEl.hidden = true;
+      show("upload");
+    },
+  });
+
   /**
    * The shredder's cut in this game (S4): letters above it go, the paper there stops catching
    * bullets, the minimap greys it out. The animated office hides what went into the shredder;
@@ -764,6 +780,7 @@ function startGame(pdf, online = {}) {
       ambience?.dispose();
       solo?.dispose();
       solo = null;
+      leave.dispose();
       shredDeath.dispose();
       office?.dispose();
       renderer.dispose();

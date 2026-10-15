@@ -143,6 +143,18 @@ h1 { font-size: clamp(40px, 8vw, 64px); line-height: 0.95; letter-spacing: -0.03
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; font-size: 14px; }
 .keys dt { font: 12px/1.6 var(--mono); color: var(--text); background: #ffffff10; border: 1px solid #ffffff1a; border-radius: 4px; padding: 0 6px; justify-self: start; }
 .keys dd { margin: 0; color: var(--muted); line-height: 1.6; }
+.pause-foot { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+/* Home: leave the game (ui/leave.js) */
+.ec-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ec-actions .btn[hidden] { display: none; }
+#leave-confirm {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;
+  background: #000a; pointer-events: auto; cursor: default;
+}
+.lc-card { background: #111114f8; border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; width: min(400px, 100%); }
+.lc-title { margin: 0 0 8px; font-size: 20px; font-weight: 800; }
+#lc-text { margin: 0 0 18px; color: var(--muted); line-height: 1.5; }
+.lc-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 /* ---------- multiplayer ---------- */
 .btn {
