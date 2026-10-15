@@ -40,7 +40,7 @@ REJECTED / FIRED! (static with `prefers-reduced-motion`). The "prototype · v0.5
 | Tab (hold) | scoreboard (multiplayer) |
 | M | mute |
 | I | replay the intro |
-| O | she shreds the CV / puts it back (dev / demo, visual only, see "The office") |
+| O | single player only: she shreds the CV / puts it back (visual demo, see "The office") |
 | Esc | pause |
 
 ### Phones and tablets (touch)
@@ -142,6 +142,14 @@ see "Waiting for <host> to start a rematch…". A rematch is instant (no map reb
 the clean paper come back, scores go to zero and everyone respawns spread over the page with 2 s of
 protection. Hits still in flight from the old match don't count. Players who join mid-match or during
 the end card get the current match state (and the end card).
+
+**The shredder**: 1:30 into every match (the clock starts when the first guest is in the game, and
+again at every Rematch press) the office worker grabs the CV and feeds it into her shredder, after a
+10-second countdown on the HUD. The page is eaten from the top edge down in 45 s (~5.4 m/s, slower
+than walking): letters above the cut vanish, anyone standing there dies (a death, no kill for anyone:
+"X went through the shredder"), respawns happen well below the cut and the minimap greys out what's
+gone. If nobody has reached the kill target when the page is used up, the match ends and the leader
+wins. See "The office".
 
 **Drop-outs**: a guest whose connection dies without saying goodbye stays in the list as
 "reconnecting…" (with its score, no avatar) for 60 s. Its tab shows "Connection lost. Reconnecting…
@@ -371,24 +379,27 @@ clock or stretches. You hear the room around you: ventilation and hum, her keybo
 typing, phones, the copier and printer, footsteps, distant chatter
 (`src/audio/officeAmbience.js`, all synthesised, positional).
 
-It is **environment only**: the page never moves (when she lifts the CV the office swings around the
-players instead), and movement, hits and the network are as before. The one exception: the tray's
-walls **stop bullets** (sparks, result `"wall"`); players can't reach them anyway.
+The page never moves (when she lifts the CV the office swings around the players instead). The
+tray's walls **stop bullets** (sparks, result `"wall"`); players can't reach them anyway.
 
-**The shred sequence** (dev / demo for now): press **O** after the intro, or open the game with
-`?shred=N` (N seconds after the intro). She picks the CV up, reads it, shakes her head and feeds it
-into the shredder; the page disappears into the slot over 45 s (`config.office.shredSeconds`) with
-paper flecks and a rumble. **O** again puts it back. It is visual only and local to your browser (not
-networked); it is the hook for a future shrinking map.
+**The shredder in a match** (`src/game/shredder.js`): 1:30 into a multiplayer match she picks the CV
+up, reads it, shakes her head and feeds it into the shredder; the page goes into the slot over 45 s
+with paper flecks and a rumble, and **the map shrinks with it** (see "Multiplayer"). Nothing about
+the shredding goes over the network: every screen works out the same cut from the shared match
+clock (`NET_VERSION` 6), so late joiners land on the same cut; only the shredder's deaths are sent,
+by the host. In **single player** it is a visual-only demo: press **O** after the intro (again to
+put the CV back) or open the game with `?shred=N`.
 
 | URL option | |
 |---|---|
-| `?office=0` | no office: the old dark backdrop and exactly the old gameplay (no tray walls) |
+| `?office=0` | no office: the old dark backdrop, no tray walls (in a match the shredder still shrinks the map) |
 | `?ambience=0` | office without its soundscape |
-| `?shred=N` | start the shred sequence N s after the intro |
+| `?shred=N` | single player: start the visual shred demo N s after the intro |
+| `?shredAfter=N` / `?shredSeconds=N` | on the host: the shredder starts N s into the match / eats the page in N s (counts for everyone), e.g. `?shredAfter=8&shredSeconds=30&target=50` |
 
 Tunables live in `src/config.js` → `office` (fog colour, lightmap brightness, her lighting, idle
-weights, shred speed, audio volume / chatter / optional recordings in `audio.samples`).
+weights, audio volume / chatter / optional recordings in `audio.samples`) and `shredder` (`after`
+90 s, `grab` 9.35 s, `seconds` 45, `warn` 10 s, `bite` 1 cm).
 
 **Rebuilding `office.glb`** (scripts in the git-ignored `blender_src/scripts/`: `build_office.py`
 geometry, `bake_office.py` Cycles lightmaps + export, `build_woman.py` her rig, `anim_woman.py` her
@@ -402,8 +413,9 @@ clips), from the repo root, with the snap's Blender binary:
 ```
 
 Then reload the game and commit `public/models/office.glb`. If the file is missing the game uses a
-procedural placeholder office. Architecture, placement maths, the shred API, the soundscape, the
-asset pipeline, test results and the plan for the shrinking map: [docs/OFFICE.md](docs/OFFICE.md).
+procedural placeholder office. Architecture, placement maths, the shred API, the shredder in a
+match (decisions, sync, gameplay, tests), the soundscape, the asset pipeline and test results:
+[docs/OFFICE.md](docs/OFFICE.md).
 
 ## Debug the PDF extraction (Node)
 
@@ -448,8 +460,14 @@ by a respawn, every fake refused by the rewind check and no honest hit refused. 
 10 over a laggy fake link, the host starts each rematch at once (so old hits are still in flight), one
 player joins during an end screen and another mid-match. Winner, scores and awards must be identical
 everywhere, kills = deaths, nothing scores on the end screen, old-round hits don't count, every letter
-is back after a rematch. Same `LAG=`, `JITTER=`, `SEED=`. Now: 21/21 checks pass at 80 ± 40 and
-200 ± 150 ms.
+is back after a rematch, and every screen has the same match clock (started once by the host,
+restarted by every rematch, handed to late joiners). Same `LAG=`, `JITTER=`, `SEED=`. Now: 28/28
+checks pass.
+
+`npm run sim:shred` tests the shredder (`src/game/shredder.js`): the timetable and countdown, the
+host's timings reaching live and late guests, the same cut on every screen, the page eater (every
+letter goes once, when the cut passes its middle), the spawn rule (30 m+ below the cut), shredder
+deaths (a death, no kill, host only) and the shred ending (the leader wins). Now: 26/26 checks pass.
 
 ## Layout
 
@@ -458,11 +476,13 @@ src/
   main.js               front page (upload, sample CV) / join screen -> loading -> game loop, host + guest wiring;
                         100 ms timer keeps the network running when a hidden tab gets no frames;
                         guest auto-rejoin after a drop, end-of-match camera flight to the top view;
-                        office wiring (?office= ?ambience= ?shred=, O key, tray walls, shredFx)
+                        office wiring (?office= ?ambience= ?shred=, O key, tray walls, shredFx);
+                        the match shredder: ?shredAfter= ?shredSeconds=, syncShred, applyCut (PageEater,
+                        collision.cutZ, minimap, fallback clip plane), late joiners below the cut
   landing.css           front page styles, scoped to `.landing`: Paper & ink and dark palettes (data-theme)
   config.js             all tunables (scale, heights, speeds, intro timings, net incl. killTarget, turn,
                         characters: toon / rim, touch controls, graphics presets low / high,
-                        office: fog, lighting, idle weights, shredSeconds, audio)
+                        office: fog, lighting, idle weights, audio; shredder: after, grab, seconds, warn, bite)
   input/touchMode.js    touch mode: decided once at load (primary pointer is a finger), ?touch=1/0, html.touch
   input/fullscreen.js   fullscreen + landscape lock on Play (best effort), fullscreen change events
   pdf/extract.js        pdf.js render with a recording Path2D -> glyph outlines, colours, rules, raster
@@ -470,10 +490,11 @@ src/
   pdf/loadPdf.js        browser wiring for pdf.js + worker (from a File or raw bytes; keeps `pdf.bytes`)
   world/buildWorld.js   instanced extruded letters, rule walls, paper floor, lights, spawn point
   world/intro.js        top view -> letters rise -> camera swoop
-  world/collision.js    spatial grid + circle-vs-letter-outline collision; `walls`: bullet-only quads (tray) (pure JS)
+  world/collision.js    spatial grid + circle-vs-letter-outline collision; `walls`: bullet-only quads (tray);
+                        `cutZ`: no floor above the shredder's cut (pure JS)
   world/office.js       the office around the page: office.glb (or placeholder) placed by the CV_Anchor inverse,
                         baked / office-lit materials, her clips + idle scheduler, shred sequence (office.shred,
-                        page clipping), trayWalls()
+                        syncShred to the match clock, page clipping, clipPage), trayWalls()
   world/layout.js       letter heights, spawn points (middle, or near a given centre) (pure JS)
   player/playerCore.js  movement simulation: accel, jump, gravity, step-up, analog throttle (pure JS)
   player/playerController.js  pointer lock + keys -> PlayerCore -> camera (head bob, landing dip), `dead` flag;
@@ -503,16 +524,18 @@ src/
   fx/wordShots.js       word shots: typed rejection slips on every shot (WORDS / RARE_WORDS, pickWord),
                         REJECTED stamp over destroyed letters (printed on the paper), FIRED! over kills; reset()
   audio/sfx.js          procedural Web Audio: gun (others' positional, duller far away), impacts, crumble,
-                        steps (own + other players'), reload, body hit, hurt
+                        steps (own + other players'), reload, body hit, hurt, shredder countdown blips
   audio/officeAmbience.js  the office soundscape, procedural + positional: room tone, clock, her (synced to her
                         clips), coworkers, phones, copier, printer, footsteps, chatter, shredder; audio.samples hook
   ui/hud.js             crosshair hit markers (letter, player, headshot, kill), ammo, CV integrity, toasts
   ui/touchControls.js   on-screen controls (touch mode): floating joystick, drag look, fire + aim, jump,
                         crouch, reload, pause / scoreboard / mute; multi-touch by pointerId + pointer capture
-  ui/combatHud.js       health bar, damage flash + direction, killcam text, spawn protection, kill feed, Tab scoreboard
-  ui/minimap.js         page raster + player arrow + dots for other players in sight
+  ui/combatHud.js       health bar, damage flash + direction, killcam text, spawn protection, kill feed (incl.
+                        "went through the shredder"), Tab scoreboard
+  ui/minimap.js         page raster + player arrow + dots for other players in sight; greys out the shredded top
   ui/nameTags.js        HTML name tags projected from 3D over other players
-  ui/matchHud.js        match bar (first to N, leader, you) and end card (winner, table, awards, Rematch)
+  ui/matchHud.js        match bar (first to N, leader, you, shredder NN%), shredder countdown / notices (warn),
+                        end card (winner, table, awards, why it ended, Rematch)
   ui/lobby.js           join screen, invite box (pause card), player list with ping (+ "relay", "reconnecting…"),
                         notice feed, saved nickname, per-tab rejoin key (sessionStorage); the storage keys
                         keep the old `playable-cv:` prefix so saved names / rejoins survive the rename
@@ -540,18 +563,22 @@ src/
   net/letters.js        LetterNet: shared destruction, predicted hits, host validation, late-join snapshot,
                         round-tagged hits, reset per match (pure JS)
   net/combat.js         Combat: PvP referee: HP, damage + falloff, rewind check, deaths, respawns, regen, K/D,
-                        streaks + headshot kills, round tags, reset per match (pure JS)
-  net/match.js          Match: first to N, end (scores + awards), rematch, round number, late-join state (pure JS)
+                        streaks + headshot kills, round tags, reset per match, environmentKill (shredder) (pure JS)
+  net/match.js          Match: first to N, end (scores + awards, why), rematch, round number, the match clock
+                        (startAt, go, elapsed) + the host's shredder timings, late-join state (pure JS)
   net/hitbox.js         player hitboxes (body capsule + head sphere, standing / crouched), ray vs players (pure JS)
   game/pvp.js           PvP glue: weapon -> combat, killcam, respawn spot, remote shots, HUD, kill feed, scoreboard;
-                        match: end view, rematch spawns spread over the page
+                        match: end view, rematch spawns spread over the page; the shredder: pvp.shred, host-only
+                        shredder deaths, spawns below the cut, "page used up" end, countdown
+  game/shredder.js      the shredder's timetable from the match clock: shredState (waiting / grab / feeding / done,
+                        cutZ, countdown), cutAt, PageEater, spawnClear / SPAWN_LEAD (pure JS)
   net/mapHash.js        map fingerprint (entity count + geometry hash) to check host and guest agree
 public/models/          exported Blender models (committed): player_corporate.glb, player_engineer.glb, gun.glb,
                         office.glb (baked office + the woman + her 7 clips, 2.2 MB)
 public/example_cv.pdf   the front page's sample CV (copy of the root example_cv.pdf, shipped with the build)
 docs/FRONT_PAGE.md      front page: sections, themes and tokens, CV stage, job hunters, how to change
 docs/OFFICE.md          the office: placement maths, materials, her animation, shred API, tray walls, soundscape,
-                        Blender pipeline, config, test results, shrinking-map plan
+                        Blender pipeline, config, the shredder in a match, test results
 viewer.html             model viewer page (dev, `npm run dev` → /viewer.html)
 blender_src/            LOCAL ONLY, git-ignored: .blend files, bake/, renders/, scripts/ (common.py, build_characters.py,
                         build_anims.py, build_gun.py; build_office.py, bake_office.py, build_woman.py,
@@ -562,7 +589,8 @@ tools/test-raycast.mjs  grid raycast vs brute force, plus bullet walls (`npm run
 tools/test-interp.mjs   snapshot interpolation under simulated networks (`npm run test:interp`)
 tools/sim-net.mjs       shared destruction: 5 players on a laggy fake link must end with the host's map (`npm run sim:net`)
 tools/sim-pvp.mjs       PvP: host + 5 guests fight 90 s on a laggy fake link, scores agree, fakes refused (`npm run sim:pvp`)
-tools/sim-match.mjs     match flow: 3 matches to 10, instant rematches, late joiners, results agree (`npm run sim:match`)
+tools/sim-match.mjs     match flow: 3 matches to 10, instant rematches, late joiners, results + match clock agree (`npm run sim:match`)
+tools/sim-shred.mjs     the shredder: timetable, timings hand-off, page eater, spawn rule, shredder deaths, shred ending (`npm run sim:shred`)
 tools/bodies.mjs        shared Node helper: collision bodies from a PDF
 tools/signal-server.mjs dependency-free PeerJS-compatible signaling server (`npm run signal`)
 vite.config.js          `base` from BASE_PATH (sub-path on GitHub Pages), `__APP_VERSION__` from package.json

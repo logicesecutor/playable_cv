@@ -18,7 +18,10 @@ original page becomes the minimap.
 | Tooling | **Vite + npm**, three.js for rendering, pdf.js for parsing. Runs fully locally. |
 | Multiplayer | **Peer-to-peer WebRTC, host's browser is the referee.** No game server: the public PeerJS broker (`0.peerjs.com`, overridable with `?broker=`) only does the handshake, Google + Cloudflare STUN, optional free Metered TURN relay for strict networks. 2–8 players, deathmatch first to 10, a fresh CV per match, host leaving ends the game (a dropped guest can come back). Deployed on GitHub Pages by a GitHub Action (MP5). |
 | Mobile | **Phones and tablets in landscape, on-screen controls.** Floating joystick with auto-sprint at the edge (roughly forward), drag to look, fire button that also aims with the same thumb, crouch on hold; fullscreen + landscape lock on Play where supported (Android yes, iPad fullscreen only, iPhone neither); automatic low graphics preset; no aim assist for now. Targets Android Chrome and tablets. Full plan in [MOBILE.md](MOBILE.md). |
-| Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). **Shred sequence: visual and local only** for now (O key, `?shred=N`), `office.shred` is the hook for a shrinking map. `?office=0` = the old game exactly. Details in [docs/OFFICE.md](docs/OFFICE.md). |
+| Office (environment) | **The CV lies in a letter tray on a giant office worker's desk, at true scale** (1 real m ≈ 850 game m). The office is modelled in real metres in Blender and placed around the page by `office.root.matrix = T(page centre) · S(K) · inverse(CV_Anchor)`: the page never moves, when she lifts the CV the office swings around the players, so gameplay and networking are untouched. Static parts are **baked** (Cycles lightmaps shown unlit); she is lit by a small office-frame Lambert shader. 50-bone rig, 7 clips, idle scheduler. **Procedural, positional soundscape** (no files; optional recordings via `config.office.audio.samples`). **Tray walls stop bullets only** (players are already clamped to the page). Shred sequence: gameplay in a match (next rows), a visual-only demo in single player (O key, `?shred=N`). `?office=0` = no office (in a match the shredder still shrinks the map). Details in [docs/OFFICE.md](docs/OFFICE.md). |
+| Shredder trigger | **1:30 after the match starts, on a shared match clock** (`config.shredder.after`). Round 1's clock starts **when the first guest is in the game** (a host waiting alone loses nothing); every rematch restarts it **at the Rematch press**. Nothing about the shred is sent: every screen computes it from the clock (`src/game/shredder.js`). |
+| Shrinking map | **The shred changes gameplay**: the page is eaten from the top edge in 45 s (~5.4 m/s, walking outruns it); letters, floor and spawns above the cut are gone. A player caught there **dies: a death with no killer** (host decides). |
+| Shred ending + warning | If nobody reached the kill target when the page is used up, **the match ends and the leader wins**. Warning: a **10-second HUD countdown** before she reaches for the CV. |
 
 ## How the PDF becomes geometry
 
@@ -190,7 +193,36 @@ Each milestone ends with something runnable.
       came from two SwiftShader windows starving one CPU (also seen with the office off, more often with
       it on). **O8** docs: [docs/OFFICE.md](docs/OFFICE.md), README "The office".
       **Still to do:** real-GPU / real-device fps, mobile check, a human listening pass on the audio
-      (chatter), network-sync the shred, the shrinking map itself.
+      (chatter). (Network-syncing the shred and the shrinking map: done in S1–S5 below.)
+- [x] **The shredder in a match (S1–S6)**, branch `feature/shred-trigger` (from
+      `feature/office-environment`). **S1** a shared match clock: `Match.startAt` in host time, `go(at)`
+      when the first guest is in the game (`{t:"match", s:"go", r, at, sh}`), restarted by every
+      rematch (`start` carries `at`), in the late-join snapshot; `NET_VERSION` 6. **S2** she grabs the CV
+      1:30 in on every screen at once: `src/game/shredder.js` (pure) turns the clock into
+      `{phase waiting / grab / feeding / done, t, progress, cutZ, countdown}`; timings in `config.shredder`
+      (after 90 s, grab 9.35 s = her Shred clip, seconds 45, warn 10 s, bite 1 cm; `office.shredSeconds`
+      removed), the host's `after` / `seconds` travel with the clock (`sh`, dev `?shredAfter=` /
+      `?shredSeconds=` on the host); `office.syncShred(t, progress)` follows the clock (late joiners see
+      her mid-clip) with the visible cut on the gameplay line (`cutAt`); O key / `?shred=N` now solo-only.
+      **S3** the 10 s countdown ("She's reaching for your CV", blips), grab / feed notices, match bar
+      "shredder NN%". **S4** the shredded part is gone: letters eaten when the cut passes their middle
+      (`PageEater`, every screen, no network), no floor for bullets (`CollisionWorld.cutZ`), the host
+      kills anyone above the cut (`Combat.environmentKill`, `{t:"death", v, by:v, h:0, c:"shred"}`:
+      a death, no kill; kill feed / killcam "went through the shredder"), respawns 30 m+ below the cut,
+      minimap greyed out with a red line, a fallback clip plane without the animated office. **S5** the
+      page used up first: the host ends the match (`Match.finish(rows, "shred")`, `why: "shred"`), the
+      leader wins, end card "the CV went through the shredder: most kills wins". Fixes: killcam text,
+      late joiners / reconnects spawn below the cut. **Validation:** `sim`, `test:ray`, `sim:pvp`,
+      `test:interp`, `sim:net`, `sim:match` (now with match-clock checks, 28/28) and the new `sim:shred`
+      (26/26) pass, the build is clean. Two headless windows (`?shredAfter=8&shredSeconds=30&target=50`):
+      countdown and notices on both, same phase and cut within a frame, same letters eaten, the host
+      near the top went through the shredder and respawned below the cut, the match ended on both with
+      the shred end card, Rematch brought back all 1,745 letters and the countdown. Three windows with a
+      late joiner during the feed (one with `?office=0`): same cut and letter count, fallback plane,
+      spawned below the cut. **S6** docs: [docs/OFFICE.md](docs/OFFICE.md) "The shredder in a match",
+      README. **Known limits:** headless SwiftShader only (no real-GPU / phone check), guests see their
+      own shredder death one round trip late, the end view of a fully shredded match shows an empty
+      tray, the countdown blips are unheard by a human so far.
 
 ## Multiplayer architecture
 
@@ -202,14 +234,15 @@ Each milestone ends with something runnable.
   no retransmits) for player state and ping/pong.
 - **Host authority** (`net/room.js`): the host assigns ids and colours, owns the player list,
   validates letter hits (MP3), referees PvP (MP4) and the match (MP5). Star topology: guests only talk to the host.
-- **Messages** (JSON, `NET_VERSION` = 5 since the characters: `PlayerInfo.outfit` in `players` /
+- **Messages** (JSON, `NET_VERSION` = 6 since the shredder's match clock, S1; 5 was the characters: `PlayerInfo.outfit` in `players` /
   `welcome`). `rel`:
   `hello {v,name,k,have}` (`k` = per-tab rejoin key, `have` = `{hash,count}` of a map the guest already
   has) → `welcome {you,players,map,pdf,world}` + PDF bytes (`pdf` = null and no bytes when `have`
   matches), or `reject {reason}` (version, full); `world` = `{letters, combat, match}`: `letters` =
   destruction snapshot `{dead:[id…], hp:[[id,hp]…], kills:[[player,n]…]}`, `combat` = `[[player, hp,
-  alive, protectedUntil, kills, deaths, streak, best, heads]…]` (MP4/5), `match` = `{p,r,t,w,sc,aw}`
-  (phase, round, target, winner, scores, awards);
+  alive, protectedUntil, kills, deaths, streak, best, heads]…]` (MP4/5), `match` = `{p,r,t,w,sc,aw,at,sh,why}`
+  (phase, round, target, winner, scores, awards; since S1 the match clock start, the host's shredder
+  timings and how the last match ended);
   `ready {hash,count}` once the guest's map is built; `players` on every change (state `loading` /
   `in-game` / `away`, `route` direct / relay); `pings {p:[[id,ms]…]}`
   every 2 s; `kick` (map mismatch); `bye` on leaving. Unknown types go to `onGameMessage` (a guest
@@ -223,8 +256,11 @@ Each milestone ends with something runnable.
   position for the direction arc), `death {v,by,h}`, 3 s later `respawn {v,x,z,y,u}` (`y` = yaw,
   `u` = end of spawn protection).
   Match (MP5), host → all: `match {s:"end", r, w, sc:[[id,kills,deaths,letters,heads,best]…],
-  aw:[[key,id,value]…]}` and `match {s:"start", r, u, sp:[[id,x,z,yaw]…]}` (rematch, `u` = end of
-  spawn protection).
+  aw:[[key,id,value]…], why}` and `match {s:"start", r, u, at, sh, sp:[[id,x,z,yaw]…]}` (rematch, `u` =
+  end of spawn protection); since S1 (`NET_VERSION` 6) also `match {s:"go", r, at, sh}` (the match clock
+  started: `at` = host time, `sh` = the host's shredder `[after, seconds]`), `why` = `"kills"` /
+  `"shred"`, and the late-join `match` snapshot gains `at`, `sh`, `why`. Shredder deaths:
+  `death {v, by:v, h:0, c:"shred"}`.
   `fast`: `ping {c,r}` (guest → host, `r` = its measured RTT) → `pong {c,h}` (`h` = host clock);
   state `s {i,k,h,p:[x,y,z],a:[yaw,pitch],v:[vx,vy,vz],f}` (`f` flags crouch/grounded/sprint/fly/reload,
   ~110 bytes) plus, when we fired recently, `x:[[ox,oy,oz, ex,ey,ez, kind, seq]…]` (kind 0 miss,
@@ -303,8 +339,9 @@ Each milestone ends with something runnable.
 - Multi-page PDFs: pages side by side, or one level per page?
 - Single player win condition (e.g. "destroy the whole Skills section"), or pure sandbox? (Multiplayer
   has deathmatch to 10 since MP5.)
-- The shrinking map: what starts the shred in a match (a timer, the leader's score, letters left), and
-  are players caught behind the cut line killed or pushed? Plan in [docs/OFFICE.md](docs/OFFICE.md).
+- The shrinking map (what starts the shred, are players behind the cut killed or pushed): **decided and
+  built** in S1–S5, a 1:30 match timer and players above the cut die with no killer (see "Decisions so
+  far"). The timings (1:30 + 45 s) still need a check with real players.
 
 ## Run it
 
@@ -322,4 +359,5 @@ destruction, `npm run sim:pvp` player vs player and `npm run sim:match` the matc
 `?netsim=lag:80,jitter:40,loss:0.05` simulates a bad network in the browser, `?target=3` shortens matches,
 `?relay=1` / `?turn=<app>:<key>` test the TURN relay, `?touch=1` / `?touch=0` force the touch controls,
 `?gfx=low` / `?gfx=high` pick the graphics preset, `?office=0` / `?ambience=0` turn off the office / its sound,
-`?shred=N` starts the shred sequence N s after the intro (also the O key). `npm run build` builds the site (GitHub Pages: see the README).
+`?shred=N` starts the solo shred demo N s after the intro (also the O key, single player only),
+`?shredAfter=N` / `?shredSeconds=N` on the host time the match shredder; `npm run sim:shred` tests it. `npm run build` builds the site (GitHub Pages: see the README).
