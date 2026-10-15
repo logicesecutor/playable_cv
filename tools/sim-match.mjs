@@ -113,8 +113,8 @@ const drain = (ms) => { const end = now + ms; while (now < end) { for (const n o
 let ok = true;
 const check = (cond, msg) => { console.log(`${cond ? "PASS" : "FAIL"} ${msg}`); ok &&= cond; };
 
-// the match clock: not running until the host starts it (the first guest is in the game)
-check([...nodes.values()].every((n) => n.match.startAt === null), "match clock waits for the first guest");
+// the match clock: not running until the host starts it (game/pvp.js: when the room opens)
+check([...nodes.values()].every((n) => n.match.startAt === null), "match clock waits for the host's go()");
 now += 1234;
 check(host.match.go(now) && !host.match.go(now + 500), "host starts the match clock once");
 drain(LAG + JITTER + 50);
