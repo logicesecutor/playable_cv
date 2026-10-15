@@ -8,8 +8,8 @@
 //   host -> all  {t:"match", s:"go",    r, at, sh}
 //
 // The match clock: `at` is the host time (ms, room.now()) the match clock started. A rematch
-// starts it at once; the first match starts it when the first guest is in the game, so a host
-// waiting alone for friends loses nothing. Until then startAt is null. Timed events (the office's
+// starts it at once; the first match starts when the host opens the room (game/pvp.js, S8: the
+// shredder doesn't wait for guests). Until go() startAt is null. Timed events (the office's
 // shredder, game/shredder.js) run off this clock, so every screen agrees on when they happen.
 // `sh` = [after, seconds]: the host's shredder timings, so a host's dev override counts for all.
 //

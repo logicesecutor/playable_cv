@@ -2,7 +2,8 @@
 // deaths / killcam / respawns, damage HUD, kill feed, scoreboard, other players' shots.
 // MP5: the match (net/match.js): first to 10, end card + top-down view of the wrecked CV,
 // host-started rematch on a fresh CV.
-// The match clock (match.startAt): starts when the first guest is in the game, or at a rematch.
+// The match clock (match.startAt): the host starts it when the room opens (S8: even alone), and
+// again at every rematch.
 import * as THREE from "three";
 import { Combat, COMBAT } from "../net/combat.js";
 import { Match } from "../net/match.js";
@@ -10,6 +11,7 @@ import { MatchHud } from "../ui/matchHud.js";
 import { FLAG } from "../net/snapshots.js";
 import { findSpawn } from "../world/layout.js";
 import { shredState, gameMetres, spawnClear, SPAWN_LEAD, CATCH_SECONDS, CATCH_REACH } from "./shredder.js";
+import { ShredAnnouncer } from "./shredAnnouncer.js";
 
 /**
  * @param {object} o
@@ -226,8 +228,6 @@ export function createPvp(o) {
   const WAITING = shredState(null, cfg.shredder, world.size.D, bite);
   /** where the shredder is on this screen; frozen while a match is over */
   let shred = WAITING;
-  /** the announcement shown for a few seconds after the phase changes */
-  let notice = null, noticeUntil = 0, lastPhase = "waiting", lastCount = null;
   const updateShred = () => {
     if (!match.playing) return; // the end screen keeps the page as it was
     // a guest's clock is the host's only once it has synced (the first pong)
@@ -274,36 +274,9 @@ export function createPvp(o) {
     }
   };
 
-  /** the countdown and the shredder's announcements (S3) */
-  const shredHud = () => {
-    const t = performance.now();
-    if (!match.playing) {
-      lastPhase = shred.phase;
-      lastCount = null;
-      notice = null;
-      return mhud.warn(null);
-    }
-    if (shred.phase !== lastPhase) {
-      // only fresh changes (a late joiner doesn't need the news of 30 s ago)
-      const fresh = shred.t != null && (shred.phase === "grab" ? shred.t < 3 : shred.phase === "feeding" ? shred.t - cfg.shredder.grab < 3 : true);
-      if (shred.phase === "grab" && fresh) notice = { title: "She picked up your CV", sub: "the shredder is next: get away from the top of the page" };
-      else if (shred.phase === "feeding" && fresh) notice = { title: "The shredder is eating the page", sub: "anything above the cut is gone: stay ahead of it" };
-      else notice = null;
-      noticeUntil = t + 4500;
-      lastPhase = shred.phase;
-    }
-    if (shred.countdown != null) {
-      const count = Math.ceil(shred.countdown);
-      if (count !== lastCount && count >= 1) sfx.countdown?.(false);
-      lastCount = count;
-      return mhud.warn({ title: "She's reaching for your CV", count: Math.max(1, count), sub: "the top of the page goes first" });
-    }
-    if (lastCount != null) {
-      sfx.countdown?.(true); // zero: she grabs it
-      lastCount = null;
-    }
-    mhud.warn(notice && t < noticeUntil ? notice : null);
-  };
+  /** the countdown and the shredder's announcements (S3, game/shredAnnouncer.js) */
+  const announcer = new ShredAnnouncer({ mhud, sfx, grab: cfg.shredder.grab });
+  const shredHud = () => announcer.update(shred, match.playing);
 
   // ---------------------------------------------------------------- weapon <-> network
   weapon.playerRay = (ox, oy, oz, dx, dy, dz, maxT) => sync.raycastPlayers(ox, oy, oz, dx, dy, dz, maxT);
@@ -351,6 +324,8 @@ export function createPvp(o) {
 
   chud.show(true);
   chud.setHp(COMBAT.maxHp);
+  // S8: the host's match clock starts as soon as the room is open, even before anyone joins
+  if (room.isHost) match.go(now());
 
   return {
     combat,
@@ -383,8 +358,7 @@ export function createPvp(o) {
     /** the room's player list changed */
     setPlayers(list) {
       combat.syncPlayers(list.map((p) => p.id));
-      // the first match's clock starts once someone else is actually playing (host referees it)
-      if (room.isHost && list.some((p) => !p.host && p.state === "in-game")) match.go(now());
+
       if (boardOpen) chud.scoreboard(rows(), self());
     },
 

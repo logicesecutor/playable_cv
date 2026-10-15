@@ -49,6 +49,32 @@ export class MatchHud {
     this.el.bar.innerHTML = `<span class="mb-target">First to ${s.target}</span>${lead}<span class="mb-you">you ${s.you}</span>${shred}`;
   }
 
+  /** single player: the bar only shows the shredder while it eats the page (null hides it) */
+  shredBar(progress) {
+    const key = progress == null ? "" : `s${Math.floor(progress * 100)}`;
+    if (key === this._last) return;
+    this._last = key;
+    this.el.bar.hidden = progress == null;
+    if (progress != null) this.el.bar.innerHTML = `<span class="mb-shred">shredder ${Math.floor(progress * 100)}%</span>`;
+  }
+
+  /**
+   * Single player's end card: the page went through the shredder.
+   * @param {{deaths:number, letters:number}} r
+   */
+  showSolo(r) {
+    const e = this.el;
+    e.card.hidden = false;
+    e.title.textContent = "Shredded.";
+    e.sub.textContent = "Your CV went through the shredder";
+    e.body.innerHTML = `<tr class="me"><td class="rank"></td><td class="dot" style="background:#ff5a36"></td><td class="name">You</td><td class="num">–</td><td class="num">${r.deaths}</td><td class="num">${r.letters}</td></tr>`;
+    e.awards.innerHTML = r.deaths === 0 ? `<div class="award"><span class="aw-title">Untouchable</span><b>You</b><span class="aw-value">never went through it</span></div>` : "";
+    e.rematch.hidden = false;
+    e.rematch.disabled = false;
+    e.rematch.textContent = "Play again";
+    e.wait.hidden = true;
+  }
+
   /**
    * The shredder's announcement under the match bar: the countdown, or a short message; null hides.
    * @param {{title:string, count?:number, sub?:string}|null} w
@@ -107,6 +133,7 @@ export class MatchHud {
       .join("");
     e.rematch.hidden = !r.isHost;
     e.rematch.disabled = false;
+    e.rematch.textContent = "Rematch on a fresh CV";
     e.wait.hidden = r.isHost;
     e.wait.textContent = `Waiting for ${r.hostName} to start a rematch…`;
   }
