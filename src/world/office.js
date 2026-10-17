@@ -27,6 +27,12 @@
 // (syncShred, game/shredder.js: the gameplay cut is the same cutAt() line); solo, the O key /
 // ?shred=N start it as a visual-only demo.
 //
+// Her look (LOOKDEV L5, world/clerkShading.js): her Clerk_* materials are PBR, lit by the office's
+// own lights (ceiling panel, windows, her monitor) + an environment map captured from the baked
+// office (initEnv); updateLights() runs the light events: one ceiling panel above her desk that
+// stutters now and then (it also dims the page a little: main.js reads `lightDip`) and her
+// screen's wobbling glow.
+//
 // The model is public/models/office.glb (blender_src/scripts/build_office.py), loaded with the
 // other models at page load. If it is missing, a procedural placeholder with the same layout and
 // real dimensions is used instead, like the box avatar / box gun fallbacks.
@@ -34,6 +40,7 @@ import * as THREE from "three";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getModel } from "../assets/models.js";
 import { cutAt } from "../game/shredder.js";
+import { ClerkShading, CLERK_SPOTS } from "./clerkShading.js";
 
 /**
  * Clip the page's own materials (paper, letters, rules) against a plane (null: stop). Also used
@@ -176,6 +183,19 @@ export class Office {
       },
       key: new THREE.Vector3(...(s.keyDir ?? [0.15, 1, -0.45])).normalize(), // office frame: up, towards her monitor
     };
+    // her PBR look + the light events (world/clerkShading.js)
+    this.clerk = new ClerkShading(cfg.office.clerk);
+    this.bakedMats = [];
+    this.screenMats = [];
+    /** the light events: the stuttering ceiling panel and her monitor (0..1 outputs) */
+    this.lights = {
+      panel: 1,
+      monitor: 1,
+      flicker: { active: false, t: 0, next: this.rnd(cfg.office.flicker?.first ?? [20, 45]), dur: 1, segT: 0, on: true, level: 1, toggles: 0 },
+      screen: { t: 0, base: 0.92, target: 0.92, nextAt: 3 },
+    };
+    /** 0..1: how much the stuttering panel darkens the room right now (main.js dims the page with it) */
+    this.lightDip = 0;
     this.anchor = this.loadModel() || this.buildPlaceholder();
     this.anchor.updateMatrix();
     this.anchorRest = this.anchor.matrix.clone();
@@ -239,6 +259,11 @@ export class Office {
     this.animate(dt);
     if (this.shafts && this.shred.feeding) for (const s of this.shafts) s.rotation.x += s.userData.spin * dt * 7;
     this.place();
+    this.updateLights(dt);
+    if (camera && this.clerk.materials.length) {
+      this.root.updateMatrixWorld();
+      this.clerk.update(this.content.matrixWorld, camera, this.lights);
+    }
     if (camera) {
       const u = this.shade.uniforms;
       this.root.updateMatrixWorld();
@@ -474,7 +499,9 @@ export class Office {
       o.material = [o.material].flat().map((m) => {
         let c = own.get(m);
         if (!c) {
-          c = officeMaterial(m, this.cfg.office, this.shade);
+          c = m.name.startsWith("Clerk_") ? this.clerk.material(m) : officeMaterial(m, this.cfg.office, this.shade);
+          if (m.name.startsWith("Baked_")) this.bakedMats.push(c);
+          if (m.name === "Screen") this.screenMats.push(c);
           own.set(m, c);
           this.materials.push(c);
         }
@@ -484,11 +511,101 @@ export class Office {
     });
     this.content.add(model);
     this.source = "office.glb";
+    this.model = model;
+    this.buildPanelOff();
     this.throat = model.getObjectByName("Shredder_Throat");
     if (this.throat) this.buildCutters();
     this.anchor = anchor; // setupAnimation needs it
     this.setupAnimation(model, gltf.animations);
     return anchor;
+  }
+
+  // ---------------------------------------------------------------- her lights (LOOKDEV L5)
+
+  rnd([a, b]) {
+    return a + Math.random() * (b - a);
+  }
+
+  /**
+   * Capture the baked office from her head as her environment map (needs the renderer, so main.js
+   * calls it once after creating the office). No-op with the placeholder.
+   * @param {THREE.WebGLRenderer} renderer
+   */
+  initEnv(renderer) {
+    if (!this.model || !this.clerk.materials.length) return;
+    this.content.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.content.matrixWorld).invert();
+    const meshes = [];
+    for (const n of ["Office_Near", "Office_Room", "Lights", "Screens"]) {
+      const o = this.model.getObjectByName(n);
+      if (!o) continue;
+      o.traverse((m) => {
+        if (!m.isMesh) return;
+        m.userData.officeMatrix = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
+        meshes.push(m);
+      });
+    }
+    this.clerk.initEnv(renderer, meshes);
+  }
+
+  /** the "off" look of the stuttering panel: a grey quad just under it, faded in while it's dark */
+  buildPanelOff() {
+    const m = new THREE.MeshBasicMaterial({ color: 0x8f8d86, transparent: true, opacity: 0, fog: false, toneMapped: false, depthWrite: false });
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 1.2), m);
+    q.rotation.x = Math.PI / 2; // facing down
+    q.position.copy(CLERK_SPOTS.panel).add(new THREE.Vector3(0, -0.014, 0)); // just under the panel box (2 cm thick)
+    q.name = "PanelOff";
+    q.renderOrder = 1;
+    this.content.add(q);
+    this.panelOff = q;
+    this.materials.push(m);
+  }
+
+  /** the stuttering ceiling panel and her monitor's glow (cosmetic, per screen, not networked) */
+  updateLights(dt) {
+    const L = this.lights, f = L.flicker, o = this.cfg.office, fc = o.flicker ?? {};
+    f.t += dt;
+    if (!f.active && f.t >= f.next && fc.enabled !== false) {
+      f.active = true;
+      f.t = 0;
+      f.dur = this.rnd(fc.duration ?? [1, 2]);
+      f.segT = 0;
+      f.on = true;
+    }
+    if (f.active) {
+      f.segT -= dt;
+      if (f.segT <= 0) {
+        f.on = !f.on;
+        f.segT = f.on ? this.rnd([0.03, 0.14]) : this.rnd([0.04, 0.2]);
+        f.level = f.on ? 1 : this.rnd([0, 0.3]);
+        f.toggles++;
+      }
+      if (f.t > f.dur && f.on) {
+        f.active = false;
+        f.level = 1;
+        f.t = 0;
+        f.next = this.rnd(fc.gap ?? [30, 90]);
+      }
+    }
+    L.panel += (f.level - L.panel) * Math.min(1, dt * 45); // a fluorescent tube needs a moment
+    // the screen: brightness steps when the "content" changes, a fast shimmer on top
+    const sc = L.screen;
+    sc.t += dt;
+    if (sc.t >= sc.nextAt) {
+      sc.target = this.rnd([0.72, 1.05]);
+      sc.nextAt = sc.t + this.rnd([1.5, 6]);
+    }
+    sc.base += (sc.target - sc.base) * Math.min(1, dt * 6);
+    L.monitor = o.monitorFlicker === false ? 1 : sc.base * (1 + 0.035 * Math.sin(sc.t * 23.0) + 0.02 * Math.sin(sc.t * 61.0));
+    this.lightDip = 1 - L.panel;
+    // what the light events do to the office itself
+    if (this.panelOff) this.panelOff.material.opacity = 0.85 * this.lightDip;
+    const k = (o.brightness ?? 1) * (1 - (fc.roomDip ?? 0.06) * this.lightDip);
+    for (const m of this.bakedMats) m.color.setScalar(k);
+    for (const m of this.screenMats) {
+      m.userData.base ??= m.color.clone();
+      m.color.copy(m.userData.base).multiplyScalar(0.9 + 0.12 * (L.monitor - 0.9));
+    }
   }
 
   // ---------------------------------------------------------------- the cutters (S7)

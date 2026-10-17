@@ -191,8 +191,10 @@ export function buildWorld(pdf, cfg, renderer) {
 
   // ---------------------------------------------------------------- lights
   const hemi = new THREE.HemisphereLight(0xdfe6ff, 0x2a2622, 1.1);
+  hemi.userData.base = hemi.intensity;
   root.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff3e0, 2.6);
+  sun.userData.base = sun.intensity;
   const span = Math.max(W, D);
   sun.position.set(W / 2 - span * 0.35, span * 0.6, D / 2 + span * 0.25);
   sun.target.position.set(W / 2, 0, D / 2);
@@ -214,6 +216,7 @@ export function buildWorld(pdf, cfg, renderer) {
     size: { W, D },
     spawn,
     pageTexture: pageTex,
+    lights: { hemi, sun }, // the office's stuttering panel dims these a little (main.js)
     stats: { entities: entities.length, drawCalls: letters.children.length, triangles: Math.round(triangles) },
   };
 }

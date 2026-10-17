@@ -35,6 +35,7 @@ const SPOTS = {
   clock: P(0, 5.98, 2.25),
   door: P(-2.5, -5.8, 0.05),
   vents: P(0, 0, 2.7),
+  panel: P(0, 0, 2.77), // the ceiling panel above her desk that stutters (office.lights.flicker)
 };
 const PODS = [-3.6, -1.0, 1.6, 4.2].flatMap((x) => [P(x, 2.6, 0.8), P(x, -3.4, 0.8)]).concat([P(-3.6, 0.2, 0.8)]);
 const WALKS = [
@@ -91,6 +92,20 @@ export class OfficeAmbience {
       while (s.at < now + 0.3) s.at = Math.max(s.at, now) + s.run(Math.max(s.at, now));
     }
     this.updateShredder(dt, now);
+    // the stuttering ceiling panel: a tick and a short mains buzz at every flick
+    const fl = this.office.lights?.flicker;
+    if (fl && fl.toggles !== this.flickerToggles) {
+      if (this.flickerToggles !== undefined) this.panelFlick(now, fl.on);
+      this.flickerToggles = fl.toggles;
+    }
+  }
+
+  /** a fluorescent tube catching (on) or dropping out (off): starter tick + a burst of 100/120 Hz buzz */
+  panelFlick(t, on) {
+    const p = this.panner(SPOTS.panel, false);
+    this.burst(p, t, { freq: on ? 5200 : 3600, q: 5, gain: on ? 0.35 : 0.2, decay: 0.01 });
+    this.tone(p, t, { type: "sawtooth", freq: 120, freq2: 118, gain: on ? 0.3 : 0.14, attack: 0.003, decay: on ? 0.14 : 0.06 });
+    this.tone(p, t, { freq: 240, freq2: 236, gain: on ? 0.18 : 0.08, attack: 0.003, decay: on ? 0.1 : 0.04 });
   }
 
   /** separate from the constructor so a test can drive it with an OfflineAudioContext */

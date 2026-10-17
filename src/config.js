@@ -95,6 +95,18 @@ export const config = {
     // light for what isn't baked (the woman): office-frame hemisphere + soft key, see world/office.js
     shade: { sky: 0xfff6ea, ground: 0x6c6c74, key: 0.3, keyDir: [0.15, 1, -0.45], rim: 0.12 },
     // her idle life: Type loops; every idleGap seconds one of these (by weight)
+    // LOOKDEV L5: her PBR look (world/clerkShading.js): office-frame lights (three.js office axes),
+    // intensities before the soft shoulder 1 - e^(-x * exposure); sss = skin light wrap
+    clerk: {
+      keyDir: [0.15, 1.54, -0.55], key: [1.0, 0.95, 0.86], keyIntensity: 3.0,
+      fillDir: [1, 0.15, 0.1], fill: [0.78, 0.86, 1.0], fillIntensity: 0.5,
+      monitor: [0.62, 0.74, 1.0], monitorIntensity: 0.9, monitorRange: 0.55,
+      sky: 0x6e6a62, ground: 0x2e2e34, sss: 0.55, accCoat: 0.6, exposure: 1.35, envIntensity: 1, envSize: 128, lensOpacity: 0.07,
+    },
+    // the ceiling panel above her desk stutters every `gap` s for `duration` s (first one after
+    // `first` s); the room's bake dims by roomDip and the page's lights by pageDip while it's dark
+    flicker: { enabled: true, first: [20, 45], gap: [30, 90], duration: [1, 2], roomDip: 0.06, pageDip: 0.15 },
+    monitorFlicker: true,
     idle: { Glance: 3, Mouse: 3, Sip: 2, Clock: 1.5, Stretch: 1 },
     idleGap: [5, 12],
     // the soundscape (audio/officeAmbience.js), all synthesised; ?ambience=0 turns it off.

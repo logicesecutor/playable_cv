@@ -108,6 +108,46 @@ same lights.*
   on the game mesh (decimation of thin rims); the PNGs are uncompressed bake output (~45 MB) and
   get converted (JPEG / KTX2) at export in L5.
 
+## In the game (L5)
+
+She is in `public/models/office.glb` now (6.9 MB, was 2.2 MB: her 2K JPEG maps), replacing the old
+low-poly woman; the old mesh stays in `blender_src/office.blend` (collection `Woman_Old`, excluded).
+Her clips were regenerated in `office.blend` with `anim_clerk.py` on the same `Woman_Rig`, so
+`office.js` plays them unchanged (Type loop, idle one-shots, Shred synced to the match clock).
+
+**Shading** (`src/world/clerkShading.js`, `ClerkShading`): her `Clerk_*` glTF materials stay
+physically based (MeshPhysicalMaterial: maps, coat, sheen) but ignore the game's lights, which are
+aimed at the page. In their shader the scene lights are replaced by the office's own, given in the
+office frame and turned into view space every frame, so she stays lit like the baked room however
+it swings around the page:
+
+| Light | What | Config (`config.office.clerk`) |
+|---|---|---|
+| key | the ceiling panel above her desk, warm white | `keyDir`, `key`, `keyIntensity` 3.0 |
+| fill | the windows on the +X wall, cool | `fillDir`, `fill`, `fillIntensity` 0.5 |
+| monitor | her screen, a cool point light (range in real metres) | `monitor`, `monitorIntensity` 0.9, `monitorRange` 0.55 |
+| ambient | sky / carpet hemisphere | `sky`, `ground` |
+| IBL | an environment map captured from the baked office at her head (`Office.initEnv(renderer)`, PMREM, 128 px), rotated with the office (`envMapRotation`) | `envIntensity`, `envSize` |
+
+Skin gets a light wrap past the terminator, reddest in red (`sss`); the output goes through the same
+soft shoulder as the office bake (`1 - e^(-x·exposure)`), not ACES; the lenses are alpha-blended
+(`lensOpacity`), the accessories' coat is softened (`accCoat`: a full coat mirrored the room on the
+frames).
+
+**Light events** (`Office.updateLights`, cosmetic, per screen, not networked):
+
+- **Panel stutter**: the panel above her desk flicks on and off for 1–2 s every 30–90 s (first
+  after 20–45 s); the key light drops to 25 %, a grey "off" quad covers the panel, the baked room dims
+  by 6 % and the page's sun + hemisphere by 15 % (`config.office.flicker`: `gap`, `duration`,
+  `first`, `roomDip`, `pageDip`, `enabled`; `office.lightDip` 0..1 is what main.js reads). The
+  soundscape plays a starter tick and a short 120 Hz buzz at every flick (`OfficeAmbience.panelFlick`).
+- **Monitor glow**: her screen's light steps to a new brightness every 1.5–6 s (windows changing)
+  with a fast shimmer on top; the screens' colour follows it slightly (`config.office.monitorFlicker`).
+
+Checked in the browser pane (dev server on Windows): she types, reads and feeds the CV with the new
+look, the panel stutter dims her and the page, no console errors; `sim:shred`, `sim:match`,
+`test:ray`, `sim:pvp` pass, `vite build` is clean.
+
 ## Steps
 
 | # | Step | Status |
@@ -117,7 +157,7 @@ same lights.*
 | L2 | Head details: eyes, lids, lashes, brows, glasses, hair | mostly done in L1 |
 | L3 | Body + clothes on the existing 50-bone rig (`Woman_Rig`), reweighted, clips checked | ✅ |
 | L4 | PBR texture sets baked from the procedural materials (skin, knit, weave, twill, plastic) + the decimated game mesh | ✅ |
-| L5 | Export into `office.glb` + in-game shading (`MeshPhysicalMaterial`, office env light, monitor glow, panel flicker) | next |
+| L5 | Export into `office.glb` + in-game shading (`MeshPhysicalMaterial`, office env light, monitor glow, panel flicker) | ✅ |
 | L6 | Blinks and expression shape keys in her clips | |
 | L7 | Phone LOD, performance; validation | |
 | L8 | Docs + style guide for the players | |

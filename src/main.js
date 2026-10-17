@@ -244,6 +244,7 @@ function startGame(pdf, online = {}) {
   const officeOn = config.office.enabled && new URLSearchParams(location.search).get("office") !== "0";
   const office = officeOn ? new Office({ world, cfg: config }) : null;
   if (office) {
+    office.initEnv(renderer); // her environment map, captured from the baked office (LOOKDEV L5)
     scene.add(office.root);
     scene.background = new THREE.Color(config.office.background);
     camera.far = config.office.far;
@@ -723,6 +724,12 @@ function startGame(pdf, online = {}) {
       // she follows the match clock (like everyone else's screen), or ours alone
       if (shredNow) office.syncShred(shredNow.t, shredNow.progress);
       office.update(dt, camera);
+      if (world.lights) {
+        // the stuttering ceiling panel dims the page a little too (config.office.flicker.pageDip)
+        const k = 1 - (config.office.flicker?.pageDip ?? 0.15) * office.lightDip;
+        world.lights.sun.intensity = world.lights.sun.userData.base * k;
+        world.lights.hemi.intensity = world.lights.hemi.userData.base * k;
+      }
       ambience?.update(dt);
       collision.walls = office.cvInTray ? trayWalls : NO_WALLS;
       shredFx(dt, playing);
