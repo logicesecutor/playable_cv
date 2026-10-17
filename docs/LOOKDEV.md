@@ -70,6 +70,44 @@ sipping coffee. The clips run on the unchanged 50-bone `Woman_Rig`.*
   voxel remeshes) → decimation + normal-map bakes in L7 (budget 60–80k); seen from the shredder's
   side, her feeding arm passes in front of her face.
 
+## PBR textures and the game mesh (L4)
+
+![High-poly vs game mesh](lookdev-pbr.jpg)
+
+*Top: the high-poly lookdev model; bottom: the game mesh (58.6k triangles) with its baked maps,
+same lights.*
+
+- **Surface detail** (`scripts/clerk_textures.py`, procedural, object coordinates + colour
+  attributes): skin pores, mottling, a shinier T-zone, faint forehead lines, crow's feet and
+  under-eye shadow (`Age` attribute); **cable knit** (two crossing ropes per column on the front and
+  back panels, stockinette elsewhere, ribs on the hem band and cuffs via the `Rib` attribute); blouse
+  plain weave, trouser twill, shoe leather grain, chair fabric; burgundy plastic glasses; the
+  printed **ID badge** (`scripts/make_badge.py` → `textures/badge.png`: HUMAN RESOURCES · Dept. of
+  Rejections, her photo cropped from a lookdev render, "M. GRIMSBY, Senior Talent Rejector",
+  employee #00451, barcode). The eyes keep their own space after the join through an `EyeCo`
+  vector attribute.
+- **Game mesh** (`scripts/clerk_bake.py`): the high-poly mesh is split into texture sets,
+  decimated (collapse) to a budget, Smart-UV-projected, and baked in Cycles (selected to active,
+  6 mm cage): base colour / roughness / metallic through an emission swap, tangent-space normals
+  (shape + procedural bump), ambient occlusion; ORM packed (R occlusion, G roughness, B metallic);
+  texels the rays missed are grown in from their neighbours. Vertex weights survive the decimation,
+  so `Clerk_Game` is skinned to the same rig.
+
+| Set | Parts | Triangles | Maps |
+|---|---|---|---|
+| Skin | face, eyelids, hands, ankles | 16,000 | 2048² base / normal / ORM |
+| Cloth | cardigan, blouse, trousers, shoes, lanyard, chair | 22,000 | 2048² |
+| Hair | hair, brows, lashes | 12,000 | 2048² |
+| Acc | eyes, glasses frame, nails, pearls, pencil | 8,424 | 1024² (coat 1.0) |
+| Badge | ID card | 60 | `badge.png` 512×768 |
+| Lens | glasses lenses | 144 | none (alpha 0.05) |
+| **Total** | 6 materials = 6 draw calls | **58,628** | |
+
+- The whole bake takes about a minute on the RTX 3070 (OptiX).
+- **Known**: a little dark spot in the nostrils and thin dark seams along the cardigan's open edge
+  on the game mesh (decimation of thin rims); the PNGs are uncompressed bake output (~45 MB) and
+  get converted (JPEG / KTX2) at export in L5.
+
 ## Steps
 
 | # | Step | Status |
@@ -78,8 +116,8 @@ sipping coffee. The clips run on the unchanged 50-bone `Woman_Rig`.*
 | L1 | Style frame: the head (two rounds; the second direction approved) | ✅ |
 | L2 | Head details: eyes, lids, lashes, brows, glasses, hair | mostly done in L1 |
 | L3 | Body + clothes on the existing 50-bone rig (`Woman_Rig`), reweighted, clips checked | ✅ |
-| L4 | PBR texture sets baked from the procedural materials (skin, knit, weave, twill, plastic) | next |
-| L5 | In-game shading (`MeshPhysicalMaterial`, office env light, monitor glow, panel flicker) | |
+| L4 | PBR texture sets baked from the procedural materials (skin, knit, weave, twill, plastic) + the decimated game mesh | ✅ |
+| L5 | Export into `office.glb` + in-game shading (`MeshPhysicalMaterial`, office env light, monitor glow, panel flicker) | next |
 | L6 | Blinks and expression shape keys in her clips | |
-| L7 | Performance, LOD, phones; validation | |
+| L7 | Phone LOD, performance; validation | |
 | L8 | Docs + style guide for the players | |
