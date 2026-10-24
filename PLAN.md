@@ -28,6 +28,8 @@ only by an explicit decision.
 | Fluid | **Coffee mug spill on the desk**, **MLS-MPM** solver in WGSL, rendered as a **mesh in a BVH** (GPU marching cubes + GPU LBVH every frame), **two-way coupled** with the rigid bodies and the player (forces read back from the GPU 1 frame late). | 2026-10-24 |
 | G-buffer (M4) | **Own WGSL `ShaderMaterial`** into one 5-target `MultiRenderTarget`: the macro + micro blend lives once in `src/rt/surface.wgsl`, which the ray tracer's hit shading reuses; motion vectors from last frame's world matrices and bones. | 2026-10-24 |
 | Screen until M6 | **Albedo × a fake sun and sky** from the G-buffer normal + emission; keys 1–7 show the raw targets. | 2026-10-24 |
+| Light selection (M6) | **Weigh all emissive triangles** (176) per sample by an unshadowed estimate, one reservoir pass; no light tree. | 2026-10-24 |
+| Tone map (M6) | **AgX at +1 EV**, URL `?tm=` / `?ev=` to compare; revisit the exposure once indirect light lands (M8). | 2026-10-24 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
 | Cleanup | **The old CV game is deleted on this branch** (code, docs, tools, models except `player_corporate.glb`), the new game lives at the repo root. `main` and git history keep everything. | 2026-10-24 |
 
@@ -168,6 +170,9 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 - From the G-buffer: GGX specular + Lambert diffuse, NEE over the area lights (pick by power and
   distance, sample a point on the quad), one shadow ray per pixel; emissive surfaces shown as
   emission. Accumulates when the camera is still (reference image for later).
+- Done as: the 176 emissive triangles weighed by an unshadowed estimate per sample (reservoir),
+  restart per pixel on motion and everywhere on camera or body moves; physics sub-stepped
+  (≤ 1/60 s) so resting bodies stay still at low fps. Cycles check: `tools/reference.mjs`.
 - **Ask**: exposure and tone map (AgX vs ACES) on screenshots.
 - **Check**: the converged still matches a Cycles render of the same view in Blender (same lights,
   same materials) side by side.

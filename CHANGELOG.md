@@ -3,6 +3,55 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M6: direct lighting
+
+- **Decisions (asked)**: light pick weighs **all 176 emissive triangles** every sample (no light
+  tree, no cut-off); the Cycles check is the **full scene** (posed figure, micro blend rebuilt in
+  nodes); tone map **AgX at +1 EV** (chosen on a none/AgX/ACES × EV 0/1/2 grid,
+  `blender_src/renders/m6_tonemap.png`). `?tm=none|agx|aces` and `?ev=` override.
+- `src/rt/scene.js`: `lights` buffer (group 1, binding 5): every emissive triangle of the static
+  office, world space, 20 floats (v0 + area, e1 + radius, e2, normal, emission), turned to face
+  where its vertex normals face (one-sided). `moved`: a loose body is more than 1e-3 (u or rad,
+  per matrix entry) from its pose at the last restart (resting jitter does not restart the image,
+  slow creep does). `pose()`: the player's skinned triangles. `bind(cs, names)` binds only the
+  buffers a shader uses (WGSL's automatic layout drops the others and binding them fails).
+- `src/rt/brdf.wgsl`: GGX (α = r²) with the height-correlated Smith V and Schlick F (F0 =
+  mix(0.04, albedo, metal)) + Lambert × (1 − metal)(1 − F).
+- `src/rt/direct.compute.wgsl` (`src/rt/tracer.js` runs it after the G-buffer, 8×8 tiles): position
+  from the ray distance; emission as is; one light by weighted reservoir over all lights (weight =
+  unshadowed estimate: emission luminance × solid angle (capped at 2π) × receiver cosine widened by
+  the light's angular radius × BRDF with the lobe widened to that radius, + a floor so no light is
+  ever 0 where it can contribute); a uniform point on it; one any-hit shadow ray from p + n·(2e-3 +
+  1e-5·t); f·Le·cos·cos′/d²·A / p(pick). Running mean in a storage buffer (sum + count per pixel),
+  written as RGBA16F `radiance` (count in alpha). Restarts per pixel where the motion vector is
+  > 0.01 px, everywhere on a camera move or `rt.moved`.
+- `src/rt/view.js` / `view.fragment.wgsl`: mode 0 ("lit") = radiance × 2^ev, tone mapped (AgX,
+  Wrensch's minimal fit; ACES, Hill's fit; none) and sRGB-encoded.
+- `src/main.js`: physics in equal sub-steps of ≤ 1/60 s per frame (frame time capped at 100 ms)
+  instead of Babylon's one step of the whole frame: at 10 fps the 0.1 s steps made resting bodies
+  creep, which restarted the image every frame. `player.js` moves by `physics.getTimeStep()`.
+- Tools: `tools/reference.mjs [samples] [url]` converges the game's view (animations frozen,
+  `tools/reference-view.js` exports camera, posed figure, 8×8 block means of the linear image) and
+  runs `blender_src/scripts/render_reference.py` (local): `office.glb` with every material rebuilt
+  in Cycles nodes (macro set × factor, the micro blend of `surface.wgsl`, one-sided emission), the
+  figure posed from the export, GGX, max bounces 0, 512 samples, Standard view; writes
+  `blender_src/renders/m6_compare.png` (game | Cycles | log ratio) and block statistics.
+  `tools/shot.mjs`: `EVAL_OUT` writes the eval result to a file; the Chrome profile (~200 MB) is
+  deleted at the end (they filled /tmp once).
+- **Checked**: Cycles vs game, 256 game samples, 1280×577: mean luminance game 0.129, Cycles 0.122
+  (+5.6 %); 8×8 block ratio median 1.035, 78 % of blocks within 10 %, 98 % within 25 %; desk +5 %,
+  figure +7 %, the near-black background −7 %. The remaining edges in the ratio image are
+  silhouettes (sub-pixel offsets). The +5 % on lit surfaces fits the shading models: Cycles'
+  Principled BSDF takes the specular layer's whole albedo out of the diffuse, ours (1 − F) per
+  light, which differs most at grazing view (the camera is 2 cm above the desk). Soft figure
+  shadow; 35 % of shadow rays blocked by real geometry (partitions, monitor). Walking speed checked
+  in simulated time.
+- Known: **9–10 fps on the UHD 620** (60 before M6): the shadow rays through the BVH are the cost
+  (stack size made no difference); M9 presets. Any camera move restarts the image, so while moving it
+  is 1 sample per pixel: the denoiser is M7. Babylon's frame delta under-reports time at low fps, so
+  the game runs slow in wall time there. Tone map/exposure chosen without indirect light (M8).
+- Next: M7, denoiser.
+
 ## 2026-10-24 — M5: BVH and scene upload
 
 - **Decisions (asked)**: as planned: a top-level BVH over the instances rebuilt every frame (not a

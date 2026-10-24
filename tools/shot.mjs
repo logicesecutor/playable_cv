@@ -1,19 +1,20 @@
 // Load a page in headless Chrome with WebGPU, wait, print the HUD text and save a screenshot.
 //   node tools/shot.mjs [url] [out.png] [waitMs] [js]
-// `js` (optional) is evaluated after the wait (promises awaited) and its result printed, before
-// the screenshot. Page errors are printed too. Chrome is driven over the DevTools protocol
+// `js` (optional) is evaluated after the wait (promises awaited) and its result printed (or written
+// as JSON to the file in $EVAL_OUT), before the screenshot. Page errors are printed too. Chrome is driven over the DevTools protocol
 // (Node's built-in WebSocket, no dependency).
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [url = "http://localhost:5173/", out = "shot.png", wait = "5000", js] = process.argv.slice(2);
 const port = 9333;
+const profile = mkdtempSync(join(tmpdir(), "shot-")); // deleted at the end: Chrome profiles are ~200 MB
 const chrome = spawn("google-chrome", [
   "--headless=new", "--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=vulkan",
   "--ignore-gpu-blocklist", "--no-first-run", `--remote-debugging-port=${port}`,
-  `--user-data-dir=${mkdtempSync(join(tmpdir(), "shot-"))}`, "--window-size=1280,720", "about:blank",
+  `--user-data-dir=${profile}`, "--window-size=1280,720", "about:blank",
 ], { stdio: "ignore" });
 
 try {
@@ -42,7 +43,11 @@ try {
   await send("Runtime.enable");
   await send("Page.navigate", { url });
   await new Promise((r) => setTimeout(r, Number(wait)));
-  if (js) console.log("eval:", JSON.stringify(await evaluate(js)));
+  if (js) {
+    const result = JSON.stringify(await evaluate(js));
+    if (process.env.EVAL_OUT) writeFileSync(process.env.EVAL_OUT, result);
+    else console.log("eval:", result);
+  }
   console.log("gpu:", await evaluate(`navigator.gpu?.requestAdapter().then(a => a ? (a.info?.vendor + " " + a.info?.architecture) : "no adapter") ?? "no navigator.gpu"`));
   console.log("hud:", await evaluate(`document.getElementById("hud")?.textContent`));
   const shot = await send("Page.captureScreenshot", { format: "png" });
@@ -51,4 +56,6 @@ try {
   ws.close();
 } finally {
   chrome.kill();
+  if (chrome.exitCode === null && chrome.signalCode === null) await new Promise((r) => chrome.once("exit", r));
+  rmSync(profile, { recursive: true, force: true });
 }

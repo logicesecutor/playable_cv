@@ -11,6 +11,7 @@ import { mugControls } from "./scene/mug.js";
 import { createGBuffer } from "./rt/gbuffer.js";
 import { createRTScene } from "./rt/scene.js";
 import { createView } from "./rt/view.js";
+import { createTracer } from "./rt/tracer.js";
 
 const canvas = document.getElementById("view");
 const hud = document.getElementById("hud");
@@ -29,14 +30,29 @@ async function main() {
   scene.useRightHandedSystem = true; // glTF's frame: no flip on load, the ray tracer works in it too
   scene.clearColor = new Color4(0.07, 0.07, 0.08, 1);
   scene.enablePhysics(new Vector3(0, -9.81, 0), new HavokPlugin(true, await HavokPhysics()));
+  // Babylon steps physics once per frame by the whole frame time; at 10 fps a 0.1 s step lets resting
+  // bodies creep. Equal sub-steps of ≤ 1/60 s that add up to the frame time instead: smooth at any
+  // frame rate, stable at low ones. The step length is left in getTimeStep() for the player.
+  const physics = scene.getPhysicsEngine();
+  scene._advancePhysicsEngineStep = (ms) => {
+    ms = Math.min(ms, 100); // a hitch is not simulated in full
+    const n = Math.max(1, Math.ceil(ms / (1000 / 60)));
+    physics.setTimeStep(ms / n / 1000);
+    for (let i = 0; i < n; i++) {
+      scene.onBeforePhysicsObservable.notifyObservers(scene);
+      physics._step(ms / n / 1000);
+      scene.onAfterPhysicsObservable.notifyObservers(scene);
+    }
+  };
 
   const office = await loadOffice(scene);
   const player = await createPlayer(scene, canvas, SPAWN, office.mug.mesh.position);
   const mug = mugControls(office, player);
   const gbuffer = createGBuffer(scene, player.camera);
   const rt = await createRTScene(scene, office, player, gbuffer);
-  const view = createView(scene, player.camera, gbuffer, rt);
-  window.__game = { scene, office, player, mug, gbuffer, rt, view }; // for the console and tools/shot.mjs
+  const tracer = createTracer(scene, player.camera, gbuffer, rt);
+  const view = createView(scene, player.camera, gbuffer, rt, tracer);
+  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, view }; // for the console and tools/shot.mjs
 
   let hudAt = 0;
   engine.runRenderLoop(() => {

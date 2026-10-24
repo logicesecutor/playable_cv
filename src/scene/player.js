@@ -71,7 +71,7 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
   let facing = yaw + Math.PI;
 
   scene.onAfterPhysicsObservable.add(() => {
-    const dt = Math.min(scene.getEngine().getDeltaTime() / 1000, 0.05);
+    const dt = physics.getTimeStep(); // this physics sub-step (main.js)
     if (!dt) return;
     const fwd = new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
     const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));

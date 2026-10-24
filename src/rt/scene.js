@@ -63,6 +63,10 @@ export async function createRTScene(scene, office, player, gbuffer) {
   gpu.nodes.update(nodes);
   gpu.tris.update(tris);
   gpu.triMaterial.update(mats);
+  const lights = emitters(statics);
+  if (!lights.length) throw new Error("no emissive triangles: nothing would be lit");
+  const lightBuffer = buffer(lights.byteLength, "lights");
+  lightBuffer.update(lights);
 
   // every frame: skin + refit the player, place the instances, rebuild the TLAS
   const instances = new Float32Array(20 * blases.length);
@@ -71,8 +75,9 @@ export async function createRTScene(scene, office, player, gbuffer) {
   const toObject = new Matrix();
   const playerBoxes = new Float32Array(6 * skinned.mats.length);
   // ms per frame, smoothed: total, skin, triangles + refit, player upload, instances + TLAS
-  const stats = { triangles, nodes: nodeCount, buildMs, ms: [0, 0, 0, 0, 0] };
+  const stats = { triangles, nodes: nodeCount, lights: lights.length / 20, buildMs, ms: [0, 0, 0, 0, 0] };
   let frame = -1;
+  let moved = true;
   scene.onBeforeRenderTargetsRenderObservable.add(() => {
     if (scene.getFrameId() === frame) return; // notified twice per frame
     frame = scene.getFrameId();
@@ -88,9 +93,13 @@ export async function createRTScene(scene, office, player, gbuffer) {
     upload(gpu.nodes, nodes, 8 * p.nodeBase, 8 * (p.nodeBase + p.nodes.length / 8));
     const t3 = performance.now();
 
+    moved = false;
     blases.forEach((b, i) => {
       // forced: before the render targets the cached matrix is still last frame's (physics moved the body since)
       const world = b.mesh ? b.mesh.computeWorldMatrix(true) : Matrix.IdentityReadOnly;
+      // moved: more than 1e-3 (u, or rad) from where it was when the image last restarted, so a body
+      // creeping a little every frame still restarts it, but resting jitter does not
+      moved ||= !b.rest || world.m.some((x, k) => Math.abs(x - b.rest[k]) > 1e-3);
       b.toObject = world.invertToRef(toObject).m.slice();
       worldBox(b.nodes, world.m, boxes, i);
     });
@@ -100,6 +109,7 @@ export async function createRTScene(scene, office, player, gbuffer) {
       instanceU[20 * k + 16] = blases[i].nodeBase;
       instanceU[20 * k + 17] = i;
     });
+    if (moved) blases.forEach((b) => (b.rest = (b.mesh ? b.mesh.getWorldMatrix() : Matrix.IdentityReadOnly).m.slice()));
     upload(gpu.instances, instances, 0, instances.length);
     upload(gpu.tlas, tlas.nodes, 0, tlas.nodes.length);
     const t4 = performance.now();
@@ -109,12 +119,54 @@ export async function createRTScene(scene, office, player, gbuffer) {
   return {
     stats,
     blases: blases.map((b) => b.name),
-    /** Bind the scene buffers to a compute shader whose source includes trace.wgsl. */
-    bind(cs) {
-      for (const name of NAMES) cs.setStorageBuffer(name, gpu[name]);
+    /** Did a loose body move this frame (the player's own motion is not counted)? */
+    get moved() {
+      return moved;
+    },
+    /** The emissive triangles: 5 vec4f each (v0 + area, e1 + radius, e2, normal, emission), world space. */
+    lights: lightBuffer,
+    /** The player's posed triangles, world space: vertices (3 floats each), corners (3 per triangle), material ids. */
+    pose: () => ({ verts: skinned.verts, corners: skinned.corners, mats: skinned.mats }),
+    /** Bind the scene buffers to a compute shader whose source includes trace.wgsl: only those it
+     * uses (WGSL's automatic layout drops the others, and binding them fails). */
+    bind(cs, names = NAMES) {
+      for (const name of names) cs.setStorageBuffer(name, gpu[name]);
     },
     bindings: Object.fromEntries(NAMES.map((name, i) => [name, { group: 1, binding: i }])),
   };
+}
+
+// every emissive triangle of the meshes, world space, facing where its vertex normals face; 20
+// floats each: v0, area, e1, radius (centroid to the farthest corner), e2, 0, normal, 0, emission, 0
+function emitters(meshes) {
+  const out = [];
+  const sub = (a, b) => a.map((x, k) => x - b[k]);
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (const m of meshes) {
+    const p = m.getVerticesData("position");
+    const nrm = m.getVerticesData("normal");
+    const idx = m.getIndices();
+    const w = m.computeWorldMatrix(true).m;
+    for (const sm of m.subMeshes) {
+      const material = m.material instanceof MultiMaterial ? m.material.subMaterials[sm.materialIndex] : m.material;
+      const e = material.emissiveColor.scale(material.emissiveIntensity);
+      if (!(e.r + e.g + e.b > 0)) continue;
+      for (let i = sm.indexStart; i < sm.indexStart + sm.indexCount; i += 3) {
+        const [a, b, c] = [0, 1, 2].map((k) => transform(w, p[3 * idx[i + k]], p[3 * idx[i + k] + 1], p[3 * idx[i + k] + 2]));
+        let e1 = sub(b, a), e2 = sub(c, a);
+        let n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        const len = Math.hypot(...n);
+        if (!len) continue;
+        n = n.map((x) => x / len);
+        const vn = [0, 1, 2].map((k) => idx[i + k]).reduce((s, v) => s.map((x, j) => x + nrm[3 * v] * w[j] + nrm[3 * v + 1] * w[4 + j] + nrm[3 * v + 2] * w[8 + j]), [0, 0, 0]);
+        if (dot(n, vn) < 0) [e1, e2, n] = [e2, e1, n.map((x) => -x)];
+        const centre = a.map((x, k) => x + (e1[k] + e2[k]) / 3);
+        const radius = Math.max(...[a, b, c].map((v) => Math.hypot(...sub(v, centre))));
+        out.push(...a, len / 2, ...e1, radius, ...e2, 0, ...n, 0, e.r, e.g, e.b, 0);
+      }
+    }
+  }
+  return Float32Array.from(out);
 }
 
 // triangles of some meshes: their vertices concatenated (world space or each mesh's own), the 3

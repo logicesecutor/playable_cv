@@ -12,16 +12,22 @@ import view from "./view.fragment.wgsl?raw";
 import trace from "./trace.wgsl?raw";
 import bvhview from "./bvhview.compute.wgsl?raw";
 
-const VIEWS = ["shaded", "albedo", "normal", "roughness/metal", "emission", "material id", "distance", "motion",
+const VIEWS = ["lit", "albedo", "normal", "roughness/metal", "emission", "material id", "distance", "motion",
   "BVH vs raster", "BVH heat map"];
 ShaderStore.ShadersStoreWGSL.gbufferViewFragmentShader = view;
 
+const TONE_MAPS = ["none", "agx", "aces"];
+
 /**
- * What the screen shows until the ray tracer lights it (M6): a full-screen pass over the G-buffer,
- * keys 0–9 (modes in view.fragment.wgsl). Modes 8 and 9 trace one camera ray per pixel through the
- * BVHs (bvhview.compute.wgsl), only while they are on.
+ * The screen: a full-screen pass, keys 0–9 (modes in view.fragment.wgsl): 0 the traced image, the
+ * others debug views. Modes 8 and 9 trace one camera ray per pixel through the BVHs
+ * (bvhview.compute.wgsl), only while they are on. URL: ?tm=none|agx|aces (tone map), ?ev= (exposure;
+ * default +1 EV, chosen on M6 screenshots with direct light only: look again once M8 adds indirect).
  */
-export function createView(scene, camera, gbuffer, rt) {
+export function createView(scene, camera, gbuffer, rt, tracer) {
+  const url = new URLSearchParams(location.search);
+  const toneMap = Math.max(0, TONE_MAPS.indexOf(url.get("tm") ?? "agx"));
+  const ev = Number(url.get("ev") ?? 1);
   const engine = scene.getEngine();
   let mode = 0;
   const { mrt } = gbuffer;
@@ -54,14 +60,17 @@ export function createView(scene, camera, gbuffer, rt) {
   });
 
   const pass = new PostProcess("gbufferView", "gbufferView", {
-    uniforms: ["mode", "size"],
-    samplers: ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex", "traceTex"],
+    uniforms: ["mode", "size", "exposure", "toneMap"],
+    samplers: ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex", "traceTex", "radianceTex"],
     camera,
     shaderLanguage: ShaderLanguage.WGSL,
   });
   pass.onApply = (effect) => {
-    mrt.textures.forEach((t, i) => effect.setTexture(["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"][i], t));
+    ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"].forEach((name, i) => effect.setTexture(name, mrt.textures[i]));
     effect.setTexture("traceTex", traceTex);
+    effect.setTexture("radianceTex", tracer.radiance);
+    effect.setFloat("exposure", 2 ** ev);
+    effect.setFloat("toneMap", toneMap);
     effect.setFloat("mode", mode);
     effect.setFloat2("size", mrt.getRenderWidth(), mrt.getRenderHeight());
   };
@@ -79,6 +88,7 @@ export function createView(scene, camera, gbuffer, rt) {
     },
     resize() {
       gbuffer.resize();
+      tracer.resize();
       traceTex.dispose();
       traceTex = traced();
     },
