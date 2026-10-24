@@ -23,6 +23,7 @@ only by an explicit decision.
 | Player | **`player_corporate.glb`** (6k triangles, palette texture, 9 clips: Idle, Walk, Run, Jump, Crouch, CrouchWalk, Fire, Reload, Death). **Third-person** camera. | 2026-10-24 |
 | Clerk | **Not now**: comes back once the ray tracer handles a 58k-triangle skinned mesh. | 2026-10-24 |
 | Office materials | **Tiling PBR texture sets from the start** (wood/laminate, carpet, wall paint, ceiling tile, plastics, metal, ceramic, paper), made in Blender, no baked light. | 2026-10-24 |
+| Material detail (M2) | **Macro + micro layers**: a 2 cm player sees ~26 mm of desk across the screen, so one texture scale is either blurry up close or repeats visibly far away. Each material = a macro set (colour, grain, wear over 0.1–0.6 m) + a shared micro set (scratches, pores, fibres, stipple, glaze over 3 cm) blended into albedo, normal and roughness. | 2026-10-24 |
 | Art direction (M2) | **Realistic office**: photoreal surfaces (wood-grain laminate with fine scratches, glazed ceramic, paper fibres, low-pile carpet), colours close to today's palette (beige laminate, red mug). | 2026-10-24 |
 | Fluid | **Coffee mug spill on the desk**, **MLS-MPM** solver in WGSL, rendered as a **mesh in a BVH** (GPU marching cubes + GPU LBVH every frame), **two-way coupled** with the rigid bodies and the player (forces read back from the GPU 1 frame late). | 2026-10-24 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
@@ -119,10 +120,14 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   + 3 windows).
 
 ### M2 — Tiling PBR texture sets
-- `make_materials.py`: procedural Blender materials baked to tiling 1024² maps (albedo, normal,
-  ORM): desk laminate, carpet, wall paint, ceiling tile, light plastic, dark plastic, metal, mug
-  ceramic, paper, door wood. Texture arrays need one size for all.
-- Exported as KTX2 (Basis) if the encoder is available, else JPEG/PNG.
+- `make_materials.py`: tiling 1024² maps made in numpy inside Blender (spectral noise, strokes and
+  dots with wrap-around, so they tile by construction; Blender writes the images and renders the
+  contact sheets). 10 macro sets (albedo, normal, ORM): laminate, wood, carpet, fabric, paint,
+  ceiling tile, plastic (light and dark plastics share it through their colour factor), metal,
+  ceramic, paper. 5 micro sets (one RGBA map each, Babylon detail-map layout). Texture arrays
+  need one size for all: everything is 1024².
+- JPEG albedo, PNG normal / ORM / micro (no KTX2 encoder here; also avoids a CDN transcoder).
+  Not embedded in the glb: materials name their set in glTF extras.
 - **Ask**: art direction (realistic office vs slightly stylized, colours of the desk and mug) with
   a contact sheet of the sets before they go in.
 - **Check**: contact-sheet render of every set on a sphere and a flat tile.

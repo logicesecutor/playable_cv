@@ -25,10 +25,10 @@ for (const n of j.nodes ?? []) {
 console.log(`\n${total} triangles, ${j.materials?.length ?? 0} materials, ${noUv} primitives without UVs, extensions: ${j.extensionsUsed ?? "none"}`);
 
 const hex = (c) => "#" + c.slice(0, 3).map((v) => Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)).toString(16).padStart(2, "0")).join("");
-console.log("\nmaterial            colour   rough metal emission  tris");
+console.log("\nmaterial            colour   rough metal emission  tris  texture set (extras)");
 (j.materials ?? []).forEach((m, i) => {
   const pbr = m.pbrMetallicRoughness ?? {};
   const strength = m.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1;
   const emit = Math.max(...(m.emissiveFactor ?? [0, 0, 0])) * strength;
-  console.log(`${m.name.padEnd(19)} ${hex(pbr.baseColorFactor ?? [1, 1, 1])} ${(pbr.roughnessFactor ?? 1).toFixed(2).padStart(5)} ${(pbr.metallicFactor ?? 1).toFixed(2).padStart(5)} ${emit ? emit.toFixed(2).padStart(8) : "       -"} ${String(perMaterial.get(i) ?? 0).padStart(5)}`);
+  console.log(`${m.name.padEnd(19)} ${hex(pbr.baseColorFactor ?? [1, 1, 1])} ${(pbr.roughnessFactor ?? 1).toFixed(2).padStart(5)} ${(pbr.metallicFactor ?? 1).toFixed(2).padStart(5)} ${emit ? emit.toFixed(2).padStart(8) : "       -"} ${String(perMaterial.get(i) ?? 0).padStart(5)}  ${m.extras?.set ? `${m.extras.set} + ${m.extras.micro} x${m.extras.microRepeat}` : ""}`);
 });

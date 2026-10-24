@@ -3,6 +3,56 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M2: tiling PBR texture sets
+
+- **Decision (asked)**: macro + micro layers. At 2 cm a 1080p screen shows ~26 mm of desk, so a
+  crisp image needs ~70 texels per real mm; one 1024² set over a realistic 0.5 m tile gives 2/mm
+  (~35× magnified), over 3 cm it repeats visibly across the desk.
+- `blender_src/scripts/make_materials.py` (local, git-ignored):
+  `blender --background --factory-startup --python blender_src/scripts/make_materials.py
+  [-- --no-sheet]` (~20 s for the maps, ~1.5 min with the contact sheets on the laptop CPU).
+  - All maps are numpy arrays (Blender's Python ships numpy 2.3): `noise()` = white noise filtered
+    in the frequency domain (gaussian low-pass, optional stretch for grain / brushing, octaves),
+    `strokes()` / `dots()` drawn with indices mod N then blurred periodically, sines with whole
+    periods. So every map tiles by construction, and `save()` **asserts** it: the wrap-around step
+    must be ≤ 2× the mean step inside the image (all 35 pass).
+  - **Macro sets** (`MACRO`: tile size in real m, micro set, micro strength): laminate 0.6, wood
+    0.6, carpet 0.3, fabric 0.2, paint 0.5, ceiling 0.6, plastic 0.2, metal 0.2, ceramic 0.1,
+    paper 0.2. Files `public/textures/<set>_albedo.jpg` (sRGB, q92), `<set>_normal.png` (glTF
+    convention: +X right, +Y up the image), `<set>_orm.png` (R 1: the ray tracer does occlusion;
+    G roughness, absolute; B metal).
+  - Albedo is normalised to a mean of `ALBEDO_MEAN` = 0.9 (linear) per channel: colour comes from
+    the material factor = office colour / 0.9 (clamped to 1), so one set serves many colours
+    (e.g. plastic for 15 materials, light and dark).
+  - **Micro sets** (`MICRO`, all 0.03 m): scratches, pores, fibres, stipple, glaze, one
+    `public/textures/micro_<name>.png` each in Babylon's detail-map layout: R albedo, G normal Y,
+    B roughness, A normal X, 0.5 = no change. Blend (also used for the close-up sheet, and to be
+    copied by the ray tracer): albedo × (1 + 2s(R−0.5)), normal xy += 2s(micro xy) (whiteout-style),
+    roughness × (1 + 2s(B−0.5)), s = micro strength.
+  - Contact sheets in `blender_src/renders/`: `m2_materials.png` (each macro set on a tile and a
+    sphere, tinted with its office colour, a ceiling-like area light) and `m2_closeups.png` (3 cm
+    of each macro set magnified + its micro set, grazing light: what the 2 cm player sees).
+- **Review (asked)**: the user took my 3 notes: laminate warmer/darker with stronger grain
+  (`build_office.COLORS["Laminate"]` `#cfc8b8` → `#c2b08f`, grain weight 0.55 → 0.7, darker grain
+  colour), carpet softer (tuft albedo 0.10 → 0.05, normal strength 1.2 → 0.3, tufts 2.5 → 3 px),
+  paint gentler (orange peel 7 → 3 px, strength 0.25 → 0.12). Checked on new sheets.
+- `export_office_rt.py` now textures the office: `SETS` maps 32 of the 41 materials to a set (the
+  rest stay flat: lights, screens, plant, soil, water, cork, pot, shredder slot); `textured()` sets
+  base colour = colour / 0.9, roughness 1 (the map holds it), metallic = office value for metal
+  else 0, and glTF **extras** `set`, `micro`, `microRepeat` (micro tiles per macro tile, e.g. 20
+  on the laminate), `microStrength`; `box_uvs()` divides by the set's tile (1 UV unit = 1 tile;
+  flat materials 1 m). Textures are not embedded: the game loads `public/textures/` once for both
+  the raster and the ray tracer's texture arrays.
+- `tools/glb-info.mjs` prints each material's set from its extras.
+- **Checked**: 35 textures, every one passes the tiling assert; `glb-info`: same 14,240 tris,
+  32 materials with sets and repeats as above, factors as expected (e.g. Laminate `#cbb996`,
+  roughness 1).
+- Known: `public/textures/` is 24 MB (normals 12.5 MB and micro 7.7 MB as PNG; albedo 1 MB,
+  ORM 1.9 MB) and goes into git; GPU memory for all as rgba8 with mips ≈ 35 × 5.6 MB ≈ 195 MB.
+  Unused ORM R channel. Sphere poles on the contact sheet show UV-sphere rings (sheet only). The
+  close-up sheet uses grazing light, which exaggerates relief.
+- Next: M3 (scene, player, physics). **Ask** first: controls and camera feel.
+
 ## 2026-10-24 — M1: office export (unbaked)
 
 - `blender_src/scripts/export_office_rt.py` (local, git-ignored like all Blender sources):
