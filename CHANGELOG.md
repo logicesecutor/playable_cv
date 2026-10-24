@@ -3,6 +3,63 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M7: denoiser
+
+- **Decisions (asked)**: diffuse and specular denoised apart; TAA with a jittered G-buffer; history
+  capped at 32 frames. The M6 accumulation stays as the reference: `?denoise=0`.
+- Frame: G-buffer (jittered) → direct (one noisy sample) → temporal → 5 à-trous → resolve + TAA →
+  view (exposure, AgX). Files: `src/rt/denoise.js` (textures, ping-pong, 7 dispatches),
+  `denoise.wgsl` (shared params, packing), `temporal.compute.wgsl`, `atrous.compute.wgsl`,
+  `resolve.compute.wgsl`, `camera.wgsl` (the jittered camera ray, now shared by direct, the BVH
+  view and the denoiser).
+- G-buffer: the raster is shifted every frame by a Halton (2, 3) sub-pixel offset (16 points,
+  `gbuffer.jitter`, in the vertex shader; motion vectors stay unjittered). The motion target is
+  rgba16f now, z = last frame's distance of the surface point from last frame's eye (the history
+  check works on moving and skinned surfaces too). That is 36 colour bytes per pixel: the engine
+  asks for the adapter's maximum limits (`setMaximumLimits`; WebGPU grants 32 by default).
+- `direct.compute.wgsl` / `brdf.wgsl`: `brdf()` returns diffuse (without albedo and metal) and
+  specular apart; the pass writes this frame's sample to `tracer.diffuse` / `tracer.specular`, or
+  accumulates emission + light as in M6 with `?denoise=0` (unused outputs are 1×1).
+- Temporal: reprojected over the 4 nearest last-frame pixels, a tap kept when its normal is within
+  ~25° and its distance is what the motion target predicts; blend 1 / history length, capped at 32;
+  luminance moments → variance (7×7 spatial estimate for the first 4 frames); anti-lag as in ReLAX:
+  a fast history (blend ≥ 1/4, luminance) and the slow history's luminance clamped to the fast one's
+  3×3 range (mean ± 2σ, σ at least the fast mean's own noise). Geometry packed in one rgba32f
+  (octahedral normal in 2 × snorm16, distance, history length, fast luminances in 2 × f16): Intel
+  allows only 4 storage textures per shader.
+- À-trous: 5×5 B-spline, steps 1–16; weights from normal (cos¹²⁸), distance vs the centre's
+  gradient, luminance vs 4σ (variance blurred 3×3); a step runs only while step ≤ 16 / √(history
+  length), so converged pixels get steps 1 and 2. Resolve: diffuse × albedo × (1 − metal) +
+  specular + emission; TAA 1:9 with the motion of the nearest surface in the 3×3, history clamped to
+  the 3×3 range (mean ± 1.25σ, YCoCg), all in c / (1 + luminance).
+- Measuring against the reference changed four things from plain SVGF:
+  - f16 stores truncate on the Intel GPU (not round); in a 32-frame running mean that made the image
+    2.3 % darker → every history (temporal output, moments, geometry, TAA) is f32.
+  - Reprojecting the history by the jitter offsets resampled it every frame → blur that ate the
+    figure's contact shadow (16 % too light) → no jitter in the lookup: a still pixel reads itself
+    and its history is its supersampled mean, like the reference.
+  - SVGF feeds the first à-trous output back as history; over 32 frames that blur compounds → the
+    history is the unfiltered temporal output.
+  - The anti-lag clamp first darkened still images by 1 % (a 3×3 window misses rare bright samples)
+    → σ floored at the fast mean's noise from the moments.
+- `?timing`: timestamp queries per compute pass, `__game.timings()` (ms, 1 s average).
+  `tools/reference.mjs` loads `?denoise=0`.
+- **Checked** (headless, UHD 620, 1280×577): still, 12 s after freezing, vs the 256-sample
+  reference: mean luminance 0.998, 8×8 blocks 96 % within 5 %, 99 % within 10 %, the contact shadow
+  under the feet within 0.3 %. Camera pans: 96–99 % of pixels keep ≥ 4 frames of history (the wrong
+  motion sign would keep 65 %); three consecutive mid-pan frames clean, no boiling. Ghosting: strafe
+  past the mug and stop: 1 % of pixels off by > 0.05 (tone mapped) after 0.5 s, 0.3 % after 1 s,
+  0.15 % after 2 s (without anti-lag 0.8 % / 0.5 % at 1 / 2 s, a visible ghost of the contact
+  shadow); no trail while moving. Jitter sign: BVH vs raster 99.6 % with the jitter ×6 (40 % with
+  the sign flipped). Resize rebuilds everything; `test-bvh` passes.
+- Known: **cost on the UHD 620**: direct ~104 ms, temporal 6–8, à-trous 12–14 per pass (≈ 1.7 for
+  the skipped wide ones on converged pixels), resolve 4: 6–7 fps, about 40 ms of denoiser still and
+  70 ms moving. The passes did not get faster with fewer texture reads or less arithmetic in tests
+  (run-to-run noise ±20 %); the low preset (M9) has to cut resolution and passes. The anti-lag leaves
+  a faint mark for ~1 s on this laptop (32 frames is 4.5 s at 7 fps, 0.5 s at 60). The loose bodies
+  settle for up to ~30 s after load (pens in the cups), and `?denoise=0` restarts until then.
+- Next: M8, indirect light and reflections.
+
 ## 2026-10-24 — M6: direct lighting
 
 - **Decisions (asked)**: light pick weighs **all 176 emissive triangles** every sample (no light

@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 
-const [samples = "256", url = "http://localhost:5173/?tm=none&ev=0"] = process.argv.slice(2);
+const [samples = "256", url = "http://localhost:5173/?denoise=0&tm=none&ev=0"] = process.argv.slice(2);
 const out = "/tmp/rtshots";
 mkdirSync(out, { recursive: true });
 const js = readFileSync(new URL("./reference-view.js", import.meta.url), "utf8").replace("SAMPLES", samples);

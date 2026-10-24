@@ -5,6 +5,7 @@ import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { Color4 } from "@babylonjs/core/Maths/math.color.js";
+import { Vector2 } from "@babylonjs/core/Maths/math.vector.js";
 import "@babylonjs/core/ShadersWGSL/ShadersInclude/bonesDeclaration.js";
 import "@babylonjs/core/ShadersWGSL/ShadersInclude/bonesVertex.js";
 import "@babylonjs/core/Engines/WebGPU/Extensions/engine.multiRender.js";
@@ -13,19 +14,27 @@ import vertexSource from "./gbuffer.vertex.wgsl?raw";
 import fragment from "./gbuffer.fragment.wgsl?raw";
 
 const { TEXTURETYPE_UNSIGNED_BYTE: U8, TEXTURETYPE_HALF_FLOAT: F16, TEXTURETYPE_FLOAT: F32 } = Constants;
-const { TEXTUREFORMAT_RGBA: RGBA, TEXTUREFORMAT_R: R, TEXTUREFORMAT_RG: RG } = Constants;
+const { TEXTUREFORMAT_RGBA: RGBA, TEXTUREFORMAT_R: R } = Constants;
+
+// the radical inverse of i in base b: Halton points, the TAA's sub-pixel offsets
+const halton = (i, b) => {
+  let f = 1, r = 0;
+  for (; i > 0; i = Math.floor(i / b)) r += (f /= b) * (i % b);
+  return r;
+};
 
 /**
  * The G-buffer: every mesh rasterized once into 5 targets (layout in gbuffer.fragment.wgsl) with
  * our material shader; view.js shows them. The camera's own pass draws nothing (layerMask 0). `materials[id - 1]` is the source
- * material behind each material id (0 = nothing hit).
+ * material behind each material id (0 = nothing hit). Every frame the raster is shifted by `jitter`
+ * (pixels, 16 Halton points) for TAA; the compute passes cast their rays through the same offset.
  */
 export function createGBuffer(scene, camera) {
   const engine = scene.getEngine();
   const size = () => ({ width: engine.getRenderWidth(), height: engine.getRenderHeight() });
   const mrt = new MultiRenderTarget("gbuffer", size(), 5, scene, {
     types: [U8, F16, F16, F32, F16],
-    formats: [RGBA, RGBA, RGBA, R, RG],
+    formats: [RGBA, RGBA, RGBA, R, RGBA],
     samplingModes: Array(5).fill(Constants.TEXTURE_NEAREST_SAMPLINGMODE),
     generateMipMaps: false,
     generateDepthBuffer: true,
@@ -38,6 +47,10 @@ export function createGBuffer(scene, camera) {
   // last frame's transforms, for the motion vectors
   const prev = new Map();
   const prevViewProjection = camera.getTransformationMatrix().clone();
+  const prevEye = camera.globalPosition.clone();
+  const jitter = new Vector2();
+  const jitterNdc = new Vector2();
+  let frame = -1;
 
   // one G-buffer material per source material, ids in creation order
   const materials = [];
@@ -61,8 +74,8 @@ export function createGBuffer(scene, camera) {
       const defines = x.set ? ["#define SET"] : m.albedoTexture ? ["#define ALBEDO_TEX"] : [];
       g = new ShaderMaterial(`gbuffer.${m.name}`, scene, { vertexSource, fragmentSource: surface + fragment }, {
         attributes: ["position", "normal", "uv"],
-        uniforms: ["world", "viewProjection", "prevWorld", "prevViewProjection", "cameraPosition", "color", "roughness",
-          "metal", "emission", "materialId", "microRepeat", "microStrength", "mPreviousBones"],
+        uniforms: ["world", "viewProjection", "prevWorld", "prevViewProjection", "jitter", "cameraPosition", "prevCameraPosition",
+          "color", "roughness", "metal", "emission", "materialId", "microRepeat", "microStrength", "mPreviousBones"],
         samplers: ["albedoTex", "normalTex", "ormTex", "microTex"],
         defines: [...defines, "#define BONES_VELOCITY_ENABLED"],
         shaderLanguage: ShaderLanguage.WGSL,
@@ -106,7 +119,16 @@ export function createGBuffer(scene, camera) {
   // prepare() skips a render id it has seen, and this observable also fires at the end of a frame
   scene.onBeforeRenderTargetsRenderObservable.add(() => {
     skinned.forEach((m) => m.skeleton.prepare(true));
-    for (const g of made.values()) g.setMatrix?.("prevViewProjection", prevViewProjection);
+    if (scene.getFrameId() !== frame) {
+      frame = scene.getFrameId();
+      jitter.set(halton((frame % 16) + 1, 2) - 0.5, halton((frame % 16) + 1, 3) - 0.5);
+      jitterNdc.set((2 * jitter.x) / mrt.getRenderWidth(), (2 * jitter.y) / mrt.getRenderHeight());
+    }
+    for (const g of made.values()) {
+      g.setMatrix?.("prevViewProjection", prevViewProjection);
+      g.setVector2?.("jitter", jitterNdc);
+      g.setVector3?.("prevCameraPosition", prevEye);
+    }
   });
   scene.onAfterRenderObservable.add(() => {
     for (const [m, p] of prev) {
@@ -114,11 +136,13 @@ export function createGBuffer(scene, camera) {
       p.bones?.set(m.skeleton.getTransformMatrices(m));
     }
     prevViewProjection.copyFrom(camera.getTransformationMatrix());
+    prevEye.copyFrom(camera.globalPosition);
   });
 
   return {
     mrt,
     materials,
+    jitter,
     resize: () => mrt.resize(size()),
   };
 }

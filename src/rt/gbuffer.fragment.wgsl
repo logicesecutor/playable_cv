@@ -1,13 +1,16 @@
 // G-buffer: 0 rgba8 √albedo + metal, 1 rgba16f world normal + roughness, 2 rgba16f emission +
-// material id, 3 r32f distance along the camera ray (0 = nothing), 4 rg16f motion (last uv − uv).
+// material id, 3 r32f distance along the camera ray (0 = nothing), 4 rgba16f motion (last uv − uv)
+// + last frame's distance of this surface point from last frame's eye (the denoiser's history check).
 
 varying vPos : vec3f;
 varying vNormal : vec3f;
 varying vUV : vec2f;
 varying vClip : vec4f;
 varying vPrevClip : vec4f;
+varying vPrevPos : vec3f;
 
 uniform cameraPosition : vec3f;
+uniform prevCameraPosition : vec3f;
 uniform color : vec3f;
 uniform roughness : f32;
 uniform metal : f32;
@@ -71,5 +74,6 @@ fn main(input : FragmentInputs) -> FragmentOutputs {
   fragmentOutputs.fragData1 = vec4f(n, rough);
   fragmentOutputs.fragData2 = vec4f(uniforms.emission, uniforms.materialId);
   fragmentOutputs.fragData3 = vec4f(distance(fragmentInputs.vPos, uniforms.cameraPosition), 0.0, 0.0, 0.0);
-  fragmentOutputs.fragData4 = vec4f((prevNdc - ndc) * vec2f(0.5, -0.5), 0.0, 0.0);
+  fragmentOutputs.fragData4 = vec4f((prevNdc - ndc) * vec2f(0.5, -0.5),
+    distance(fragmentInputs.vPrevPos, uniforms.prevCameraPosition), 0.0);
 }

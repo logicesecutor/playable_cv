@@ -12,6 +12,7 @@ import { createGBuffer } from "./rt/gbuffer.js";
 import { createRTScene } from "./rt/scene.js";
 import { createView } from "./rt/view.js";
 import { createTracer } from "./rt/tracer.js";
+import { createDenoiser } from "./rt/denoise.js";
 
 const canvas = document.getElementById("view");
 const hud = document.getElementById("hud");
@@ -23,8 +24,16 @@ async function main() {
   if (!(await WebGPUEngine.IsSupportedAsync)) {
     throw new Error("This needs WebGPU: a recent Chrome or Edge, or Safari 26+, on a machine with a GPU.");
   }
-  const engine = new WebGPUEngine(canvas, { antialias: false, powerPreference: "high-performance" });
+  const url = new URLSearchParams(location.search);
+  const timing = url.has("timing"); // GPU time per compute pass (timestamp queries), see __game.timings()
+  const engine = new WebGPUEngine(canvas, {
+    antialias: false,
+    powerPreference: "high-performance",
+    setMaximumLimits: true, // the G-buffer needs 36 colour bytes per pixel; WebGPU grants 32 unless asked
+    enableAllFeatures: timing,
+  });
   await engine.initAsync();
+  engine.enableGPUTimingMeasurements = timing;
 
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true; // glTF's frame: no flip on load, the ray tracer works in it too
@@ -50,9 +59,15 @@ async function main() {
   const mug = mugControls(office, player);
   const gbuffer = createGBuffer(scene, player.camera);
   const rt = await createRTScene(scene, office, player, gbuffer);
-  const tracer = createTracer(scene, player.camera, gbuffer, rt);
-  const view = createView(scene, player.camera, gbuffer, rt, tracer);
-  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, view }; // for the console and tools/shot.mjs
+  // ?denoise=0: the reference, accumulated while still (M6), instead of the denoised image
+  const reference = url.get("denoise") === "0";
+  const tracer = createTracer(scene, player.camera, gbuffer, rt, reference);
+  const denoiser = reference ? null : createDenoiser(scene, player.camera, gbuffer, tracer);
+  const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer);
+  // ms per compute pass, averaged over the last second (with ?timing)
+  const timings = () => Object.fromEntries([...tracer.passes, ...(denoiser?.passes ?? [])]
+    .map((cs) => [cs.name, +(cs.gpuTimeInFrame?.counter.lastSecAverage / 1e6).toFixed(2)]));
+  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, denoiser, view, timings }; // for the console and tools/shot.mjs
 
   let hudAt = 0;
   engine.runRenderLoop(() => {
@@ -65,6 +80,9 @@ async function main() {
   });
   addEventListener("resize", () => {
     engine.resize();
+    gbuffer.resize();
+    tracer.resize();
+    denoiser?.resize();
     view.resize();
   });
 }

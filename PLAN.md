@@ -30,6 +30,7 @@ only by an explicit decision.
 | Screen until M6 | **Albedo × a fake sun and sky** from the G-buffer normal + emission; keys 1–7 show the raw targets. | 2026-10-24 |
 | Light selection (M6) | **Weigh all emissive triangles** (176) per sample by an unshadowed estimate, one reservoir pass; no light tree. | 2026-10-24 |
 | Tone map (M6) | **AgX at +1 EV**, URL `?tm=` / `?ev=` to compare; revisit the exposure once indirect light lands (M8). | 2026-10-24 |
+| Denoiser (M7) | **Diffuse and specular filtered apart** (diffuse divided by the albedo), **TAA + sub-pixel jitter** of the G-buffer raster, **history capped at 32 frames** (anti-lag clamp for moving shadows); the M6 converging image stays behind `?denoise=0` as the reference. | 2026-10-24 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
 | Cleanup | **The old CV game is deleted on this branch** (code, docs, tools, models except `player_corporate.glb`), the new game lives at the repo root. `main` and git history keep everything. | 2026-10-24 |
 
@@ -181,6 +182,10 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 - Temporal reprojection with depth/normal rejection, variance estimate, 4–5 à-trous passes
   (separate diffuse and specular), TAA, tone map.
 - **Check**: moving camera shows no boiling noise; ghosting test by walking past a dark object.
+- Done as: SVGF-style with changes found by measuring against the `?denoise=0` reference: the
+  history is the temporal output (not à-trous pass 1's), reprojected without the jitter; f32
+  histories; à-trous radius shrinks with history length; ReLAX-style anti-lag (fast-history
+  luminance clamp). TAA with Halton jitter in the G-buffer raster.
 
 ### M8 — Indirect light and reflections
 - 1 diffuse bounce (NEE at the hit), glossy reflections (GGX VNDF sampling), sky/daylight from the

@@ -1,13 +1,15 @@
-// Direct light from the G-buffer (trace.wgsl and brdf.wgsl are prepended). Per pixel: every
-// emissive triangle gets a weight (its unshadowed contribution, estimated at its centre), one is
-// picked in proportion (one pass, weighted reservoir), a point on it is sampled uniformly and one
-// shadow ray is traced. Emissive surfaces add their emission. The result is summed into `accum`
-// (count in w) while nothing moves, and the mean goes to `out`.
+// Direct light from the G-buffer (trace.wgsl, brdf.wgsl and camera.wgsl are prepended). Per pixel:
+// every emissive triangle gets a weight (its unshadowed contribution, estimated at its centre), one
+// is picked in proportion (one pass, weighted reservoir), a point on it is sampled uniformly and one
+// shadow ray is traced. Denoised (the default): this frame's sample goes to `diffuseOut` (without the
+// albedo) and `specularOut` for denoise.js. Reference (?denoise=0): emission + the light is summed
+// into `accum` (count in w) while nothing moves, and the mean goes to `out`.
 
 struct Params {
   invViewProjection : mat4x4f,
   eye : vec4f,
   size : vec4f, // width, height, frame, reset all (1)
+  jitter : vec4f, // the raster's sub-pixel offset (pixels), reference mode (1)
 }
 
 struct Light {
@@ -31,6 +33,8 @@ struct Light {
 @group(0) @binding(5) var motionTex : texture_2d<f32>;
 @group(0) @binding(6) var<storage, read_write> accum : array<vec4f>;
 @group(0) @binding(7) var out : texture_storage_2d<rgba16float, write>;
+@group(0) @binding(8) var diffuseOut : texture_storage_2d<rgba16float, write>;
+@group(0) @binding(9) var specularOut : texture_storage_2d<rgba16float, write>;
 @group(1) @binding(5) var<storage, read> lights : array<Light>;
 
 var<private> rng : u32;
@@ -69,30 +73,32 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
   rng = index * 9781u + u32(params.size.z) * 6271u + 1u;
   random();
 
-  var radiance = vec3f(0.0);
+  var emission = vec3f(0.0);
+  var diffuse = vec3f(0.0);
+  var specular = vec3f(0.0);
+  var albedo = vec3f(0.0);
+  var metal = 0.0;
   let t = textureLoad(depthTex, pixel, 0).r;
   if (t > 0.0) {
-    let ndc = (vec2f(id.xy) + 0.5) / params.size.xy * 2.0 - 1.0; // as in bvhview.compute.wgsl
-    let far = params.invViewProjection * vec4f(ndc, 1.0, 1.0);
-    let d = normalize(far.xyz / far.w - params.eye.xyz);
+    let d = cameraRay(params.invViewProjection, params.eye.xyz, vec2f(id.xy), params.size.xy, params.jitter.xy);
     let p = params.eye.xyz + d * t;
     let a = textureLoad(albedoTex, pixel, 0);
     let nr = textureLoad(normalTex, pixel, 0);
-    let albedo = a.rgb * a.rgb;
-    let metal = a.w;
+    albedo = a.rgb * a.rgb;
+    metal = a.w;
     let n = normalize(nr.xyz);
     let roughness = nr.w;
     let v = -d;
-    radiance = textureLoad(emissionTex, pixel, 0).rgb;
+    emission = textureLoad(emissionTex, pixel, 0).rgb;
 
     var total = 0.0;
     var picked = 0u;
     var pickedWeight = 0.0;
-    let diffuse = (1.0 - metal) * luminance(albedo) / PI + 1e-3;
-    let specular = luminance(mix(vec3f(0.04), albedo, metal));
+    let kd = (1.0 - metal) * luminance(albedo) / PI + 1e-3;
+    let ks = luminance(mix(vec3f(0.04), albedo, metal));
     let a2 = max(roughness * roughness * roughness * roughness, 1e-6);
     for (var k = 0u; k < arrayLength(&lights); k++) {
-      let w = weight(lights[k], p, n, v, diffuse, specular, a2);
+      let w = weight(lights[k], p, n, v, kd, ks, a2);
       if (w > 0.0) {
         total += w;
         if (random() * total < w) { picked = k; pickedWeight = w; }
@@ -115,16 +121,23 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
         if (shadow.t == MISS) {
           let f = brdf(n, v, wi, albedo, roughness, metal);
           // pdf of the sample: (pickedWeight / total) / area, in area measure
-          radiance += f * l.emission * dot(n, wi) * cl / (dist * dist) * l.area * total / pickedWeight;
+          let li = l.emission * dot(n, wi) * cl / (dist * dist) * l.area * total / pickedWeight;
+          diffuse = f.diffuse * li;
+          specular = f.specular * li;
         }
       }
     }
   }
 
+  if (params.jitter.z == 0.0) {
+    textureStore(diffuseOut, pixel, vec4f(diffuse, 0.0));
+    textureStore(specularOut, pixel, vec4f(specular, 0.0));
+    return;
+  }
   let m = textureLoad(motionTex, pixel, 0).xy * params.size.xy;
   var sum = accum[index];
   if (params.size.w > 0.0 || dot(m, m) > 1e-4) { sum = vec4f(0.0); } // restart where anything moved
-  sum += vec4f(radiance, 1.0);
+  sum += vec4f(emission + diffuse * albedo * (1.0 - metal) + specular, 1.0);
   accum[index] = sum;
   textureStore(out, pixel, vec4f(sum.rgb / sum.w, sum.w));
 }

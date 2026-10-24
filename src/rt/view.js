@@ -10,6 +10,7 @@ import "@babylonjs/core/ShadersWGSL/postprocess.vertex.js";
 import "@babylonjs/core/Engines/WebGPU/Extensions/engine.computeShader.js";
 import view from "./view.fragment.wgsl?raw";
 import trace from "./trace.wgsl?raw";
+import cameraRay from "./camera.wgsl?raw";
 import bvhview from "./bvhview.compute.wgsl?raw";
 
 const VIEWS = ["lit", "albedo", "normal", "roughness/metal", "emission", "material id", "distance", "motion",
@@ -19,12 +20,13 @@ ShaderStore.ShadersStoreWGSL.gbufferViewFragmentShader = view;
 const TONE_MAPS = ["none", "agx", "aces"];
 
 /**
- * The screen: a full-screen pass, keys 0–9 (modes in view.fragment.wgsl): 0 the traced image, the
+ * The screen: a full-screen pass, keys 0–9 (modes in view.fragment.wgsl): 0 the traced image
+ * (`image.radiance`: denoise.js, or the reference of tracer.js), the
  * others debug views. Modes 8 and 9 trace one camera ray per pixel through the BVHs
  * (bvhview.compute.wgsl), only while they are on. URL: ?tm=none|agx|aces (tone map), ?ev= (exposure;
  * default +1 EV, chosen on M6 screenshots with direct light only: look again once M8 adds indirect).
  */
-export function createView(scene, camera, gbuffer, rt, tracer) {
+export function createView(scene, camera, gbuffer, rt, image) {
   const url = new URLSearchParams(location.search);
   const toneMap = Math.max(0, TONE_MAPS.indexOf(url.get("tm") ?? "agx"));
   const ev = Number(url.get("ev") ?? 1);
@@ -35,7 +37,7 @@ export function createView(scene, camera, gbuffer, rt, tracer) {
     Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
   let traceTex = traced();
 
-  const cs = new ComputeShader("bvhView", engine, { computeSource: trace + bvhview }, {
+  const cs = new ComputeShader("bvhView", engine, { computeSource: trace + cameraRay + bvhview }, {
     bindingsMapping: { params: { group: 0, binding: 0 }, out: { group: 0, binding: 1 }, ...rt.bindings },
   });
   const params = new UniformBuffer(engine, undefined, undefined, "bvhView");
@@ -53,7 +55,7 @@ export function createView(scene, camera, gbuffer, rt, tracer) {
     const w = mrt.getRenderWidth(), h = mrt.getRenderHeight(), eye = camera.globalPosition;
     params.updateMatrix("invViewProjection", camera.getTransformationMatrix().invertToRef(inverse));
     params.updateFloat4("eye", eye.x, eye.y, eye.z, 1);
-    params.updateFloat4("size", w, h, 0, 0);
+    params.updateFloat4("size", w, h, gbuffer.jitter.x, gbuffer.jitter.y);
     params.update();
     cs.setStorageTexture("out", traceTex);
     cs.dispatch(Math.ceil(w / 8), Math.ceil(h / 8));
@@ -68,7 +70,7 @@ export function createView(scene, camera, gbuffer, rt, tracer) {
   pass.onApply = (effect) => {
     ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"].forEach((name, i) => effect.setTexture(name, mrt.textures[i]));
     effect.setTexture("traceTex", traceTex);
-    effect.setTexture("radianceTex", tracer.radiance);
+    effect.setTexture("radianceTex", image.radiance);
     effect.setFloat("exposure", 2 ** ev);
     effect.setFloat("toneMap", toneMap);
     effect.setFloat("mode", mode);
@@ -87,8 +89,6 @@ export function createView(scene, camera, gbuffer, rt, tracer) {
       return traceTex;
     },
     resize() {
-      gbuffer.resize();
-      tracer.resize();
       traceTex.dispose();
       traceTex = traced();
     },
