@@ -23,6 +23,7 @@ only by an explicit decision.
 | Player | **`player_corporate.glb`** (6k triangles, palette texture, 9 clips: Idle, Walk, Run, Jump, Crouch, CrouchWalk, Fire, Reload, Death). **Third-person** camera. | 2026-10-24 |
 | Clerk | **Not now**: comes back once the ray tracer handles a 58k-triangle skinned mesh. | 2026-10-24 |
 | Office materials | **Tiling PBR texture sets from the start** (wood/laminate, carpet, wall paint, ceiling tile, plastics, metal, ceramic, paper), made in Blender, no baked light. | 2026-10-24 |
+| Art direction (M2) | **Realistic office**: photoreal surfaces (wood-grain laminate with fine scratches, glazed ceramic, paper fibres, low-pile carpet), colours close to today's palette (beige laminate, red mug). | 2026-10-24 |
 | Fluid | **Coffee mug spill on the desk**, **MLS-MPM** solver in WGSL, rendered as a **mesh in a BVH** (GPU marching cubes + GPU LBVH every frame), **two-way coupled** with the rigid bodies and the player (forces read back from the GPU 1 frame late). | 2026-10-24 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
 | Cleanup | **The old CV game is deleted on this branch** (code, docs, tools, models except `player_corporate.glb`), the new game lives at the repo root. `main` and git history keep everything. | 2026-10-24 |
