@@ -3,6 +3,52 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M3: scene, player and physics (raster preview)
+
+- **Decisions (asked)**: pointer lock (click the canvas), over-the-shoulder camera, the figure
+  turns to where it walks; loose props: pen, sticky notes pad, paper clips, pencil cup + its pens.
+- `src/main.js`: WebGPU engine (no MSAA), right-handed scene (glTF's frame: no flip on load),
+  Havok (`@babylonjs/havok`, excluded from Vite's pre-bundle in `vite.config.js` so its .wasm
+  loads next to it), office, player, mug keys; HUD fps every 0.5 s; errors shown in the HUD.
+  `window.__game` exposes `{scene, office, player, mug}` for the console and `tools/shot.mjs`.
+  New dependency `@babylonjs/loaders` 9.32 (glTF + `ExtrasAsMetadata`: node/material extras land in
+  `metadata.gltf.extras`).
+- `src/scene/office.js` (`SCALE` = 90, `loadOffice`):
+  - Static: every mesh but `Lights*` / `Screens*` is unparented, its transform baked, and gets a
+    Havok MESH collider (mass 0).
+  - Loose: nodes with extras `dynamic` → one mesh each (primitives merged), origin at the node,
+    `PhysicsBody` DYNAMIC with a convex hull, or for extras `cup` = [r, h, wall, bottom, base y]
+    (real m) a container: a cylinder for the bottom + 16 boxes for the wall, so pens can stand in
+    the pencil cup and coffee can sit in the mug later. Mass and inertia from `shape.density` =
+    the real kg/m³ in player metres (the mug is ~240 t, so the character strength is capped).
+  - `reset()`: re-enables pre-step for one physics step to teleport every loose body back, at rest.
+  - Preview materials until M6: unlit, macro albedo only.
+- `src/scene/player.js`: `player_corporate` scaled to 1.8 u; `PhysicsCharacterController`
+  (capsule 1.8 × r 0.3, mass 70, strength 700 N, step 0.35); WASD relative to the camera, Shift run
+  4.5, walk 1.6, C crouch 0.8, Space jump 0.9 u; gravity added by hand in the air (`integrate()`
+  only applies it to contacts); clips (Idle, Walk, Run, Jump, Crouch, CrouchWalk) cross-faded by
+  weight; camera 0.6 right / 1.6 up from the feet, wheel zoom 2–10 u, pulled in by a Havok raycast.
+- `src/scene/mug.js`: F = impulse of mass × `SHOVE` (7 u/s) near the rim, away from the player;
+  R = `office.reset()`. Swept 5 / 7 / 9 / 12: 5 rocks back, 7+ lays the mug on its side.
+- `public/models/office.glb` re-exported (14,420 tris): office split into Office_Near, Office_Room,
+  Lights, Screens, Mug and 12 `Prop_*` nodes with extras `{dynamic, density[, cup]}`; the pencil
+  cup is now a hollow lathe (`build_office.lathe_cup`, asserts manifold). Local scripts changed:
+  `build_office.py` (props named `Prop_*`, joined per base name, origin at the bbox centre),
+  `export_office_rt.py` (`DENSITY` table, cup extras).
+- `tools/shot.mjs`: optional 4th argument, JS evaluated after the wait (promises awaited); page
+  exceptions and console errors/warnings are printed.
+- Bugs met:
+  - Baked meshes kept stale bounding boxes → culled (6 of 47 meshes drawn): `refreshBoundingInfo()`.
+  - Node origins came from a world matrix cached before the ×90 → container colliders inside the
+    desk, bodies shot off at ~36 u/s: `computeWorldMatrix(true)`.
+  - `setMassProperties({mass})` left the inertia of a unit density: replaced by `shape.density`.
+- **Checked** (headless Chrome, the Intel UHD 620 laptop): 60 fps (vsync cap); all 13 loose bodies settle where
+  exported (pens rest inside the cup); W for 1.5 s walks 1.9 u on the desk; F → mug up-axis 0.02
+  (on its side), R → 1.0 at the export position, F again → tips again.
+- Known: flat unlit look (by design until M6); the mug handle has no collider (`shortcut:` in
+  `office.js`); controls feel not yet tried by hand with a mouse.
+- Next: M4, the G-buffer.
+
 ## 2026-10-24 — M2: tiling PBR texture sets
 
 - **Decision (asked)**: macro + micro layers. At 2 cm a 1080p screen shows ~26 mm of desk, so a

@@ -133,8 +133,9 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 - **Check**: contact-sheet render of every set on a sphere and a flat tile.
 
 ### M3 — Scene, player and physics (raster preview)
-- Office at ×90 with static Havok mesh colliders; the mug as a dynamic body (cylinder + handle
-  compound); a few props (paper clip, pen, sticky note).
+- Office at ×90 with static Havok mesh colliders; the mug as a dynamic body (hollow: a disc and
+  a ring of 16 boxes, no handle collider); loose props (pen, sticky pad, 3 paper clips, stapler,
+  eraser, hollow pencil cup with its 4 pens), all with real densities.
 - Player: `player_corporate` with `PhysicsCharacterController`, walk/run/jump/crouch, clip
   blending, third-person orbit camera with collision. Keys: WASD, Shift, Space, C, F, R.
 - Temporary unlit albedo view (the RT replaces it in M6).
