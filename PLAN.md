@@ -108,7 +108,8 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 
 ### M1 — Office export (geometry, lights, mug)
 - `export_office_rt.py`: runs `build_office.build()` without the bake, keeps real materials, adds
-  the mug (`build_woman.build_mug()`) as its own node, exports `public/models/office.glb`. No CV
+  a hollow mug (same size as `build_woman.build_mug()`, whose mug is solid) as its own node, keeps
+  only the room-facing faces of the light panels and windows, exports `public/models/office.glb`. No CV
   page, no clerk. No separate light list: the game builds it at load from the triangles whose
   material has emission > 0 (panels, windows, later screens), so it can never drift from the mesh.
 - Generates UVs for tiling: world-scale box mapping (texture repeats by real size, so the grain

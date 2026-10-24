@@ -3,6 +3,39 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M1: office export (unbaked)
+
+- `blender_src/scripts/export_office_rt.py` (local, git-ignored like all Blender sources):
+  `blender --background --factory-startup --python blender_src/scripts/export_office_rt.py`
+  (~5 s). Steps: clear the factory scene → `build_office.build()` → drop its empties
+  (`CV_Anchor`, `Tray_Inner`, `Shredder_Throat`) → `trim_lights()` → hollow mug → `box_uvs()` on
+  every object → `common.export_glb()` → `public/models/office.glb`.
+- **Materials** are `build_office.COLORS` as they are: glTF PBR factors (colour, roughness, metal),
+  emission as `emissiveFactor × KHR_materials_emissive_strength` (LightPanel 4.0, Daylight 2.87,
+  Screen 0.88: colour × strength, so the max channel is below the Blender strength). No textures
+  yet (M2).
+- **Lights** = emissive triangles. `trim_lights()` keeps only the faces that face the room
+  (LightPanel: normal −Z, Daylight: normal −X): as closed boxes, their hidden backs would take half
+  the ray tracer's light samples. Result: 25 panel quads (50 tris), 3 window quads (6 tris). The
+  10 monitor screens (120 tris, emission 0.88) stay boxes for now.
+- **Mug** (`Mug` node, origin at the bottom centre, at (0.12, 0.74, 0.02) m in glTF Y-up):
+  `build_woman.build_mug()` is a solid cylinder with a coffee disc, useless for pouring, so the
+  script lathes a hollow one at the same size: r 0.04 m, h 0.1 m, wall 4 mm, bottom 6 mm,
+  48 segments, plus the same torus handle; smooth with sharp edges over 40°; 768 tris. The wall is
+  asserted watertight (the M10 coffee collider needs a closed shell). No coffee in it: the fluid
+  is the coffee.
+- **UVs**: world-scale box mapping, 1 UV unit = 1 real metre (each face uses the two world axes
+  across its dominant normal), so M2's tiling textures have one scale everywhere.
+- Units: real metres, glTF Y-up; the game scales ×90 in M3.
+- `tools/glb-info.mjs`: `node tools/glb-info.mjs <file.glb>` prints nodes (tris, position),
+  materials (colour, roughness, metal, emission, tris), primitives without UVs.
+- **Checked** with `tools/glb-info.mjs`: 5 nodes (Office_Near 4,632 tris, Office_Room 8,664,
+  Lights 56, Screens 120, Mug 768) = 14,240 tris, 41 materials, every primitive has UVs,
+  emissive: LightPanel 50 tris, Daylight 6, Screen 120. File 1.0 MB.
+- Known: 41 materials = ~55 primitives (draw calls) for the G-buffer, fine at this size; the
+  plant is 2,840 tris (a fifth of the room). Not looked at in a renderer yet (M3 loads it).
+- Next: M2 (tiling PBR texture sets). **Ask** first: art direction.
+
 ## 2026-10-24 — M0: cleanup and scaffold
 
 - **Deleted** (git history and `main` keep them): `src/`, `tools/`, `docs/`, `.github/` (Pages
