@@ -2,15 +2,18 @@ import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { StorageBuffer } from "@babylonjs/core/Buffers/storageBuffer.js";
 import { build, refit } from "./bvh.js";
+import { loadTextureArrays, SIZE } from "./textures.js";
 
 const STACK = 64; // traceBlas's stack in trace.wgsl
 const NAMES = ["nodes", "tris", "triMaterial", "instances", "tlas"];
+const SHADING = ["lights", "attribs", "materials"]; // group 1 after NAMES, declared in lighting.compute.wgsl
 
 /**
  * The ray tracer's copy of the scene on the GPU (bindings in trace.wgsl). One bottom-level BVH per
  * instance: the static office in world space, each loose body in its own space, the player skinned
  * on the CPU every frame in world space and refitted; a top-level BVH over the instances rebuilt
  * every frame. The bottom-level BVHs are built once, in a worker. Material ids are the G-buffer's.
+ * For hit shading (M8): per-triangle vertex normals and UVs, a material table and texture arrays.
  */
 export async function createRTScene(scene, office, player, gbuffer) {
   const engine = scene.getEngine();
@@ -20,8 +23,9 @@ export async function createRTScene(scene, office, player, gbuffer) {
   const blases = [
     { name: "office", ...gather(statics, gbuffer, true) },
     ...loose.map((m) => ({ name: m.name, mesh: m, ...gather([m], gbuffer, false) })),
-    { name: "player", skin: skinner(body), ...gather(body, gbuffer, false) },
+    { name: "player", skin: skinner(body), ...gather(body, gbuffer, false, false) },
   ];
+  const textures = loadTextureArrays(scene, gbuffer.materials);
   const skinned = blases.at(-1);
   skinned.skin(skinned.verts); // the build needs the posed body
 
@@ -39,6 +43,7 @@ export async function createRTScene(scene, office, player, gbuffer) {
   const triangles = blases.reduce((n, b) => n + b.mats.length, 0);
   const nodeCount = built.reduce((n, b) => n + b.nodes.length / 8, 0);
   const tris = new Float32Array(12 * triangles);
+  const attribs = new Float32Array(16 * triangles);
   const mats = new Uint32Array(triangles);
   const nodes = new Float32Array(8 * nodeCount);
   let triBase = 0, nodeBase = 0;
@@ -47,6 +52,7 @@ export async function createRTScene(scene, office, player, gbuffer) {
     if (depth(b.nodes) > STACK) throw new Error(`BVH of ${b.name} is deeper than the traversal stack`);
     b.order.forEach((t, s) => (mats[triBase + s] = b.mats[t]));
     writeTris(b, tris);
+    writeAttribs(b, attribs);
     writeNodes(b, nodes);
     triBase += b.mats.length;
     nodeBase += b.nodes.length / 8;
@@ -59,14 +65,25 @@ export async function createRTScene(scene, office, player, gbuffer) {
     triMaterial: buffer(mats.byteLength, "triMaterial"),
     instances: buffer(80 * blases.length, "instances"),
     tlas: buffer(32 * (2 * blases.length - 1), "tlas"),
+    attribs: buffer(attribs.byteLength, "attribs"),
   };
   gpu.nodes.update(nodes);
   gpu.tris.update(tris);
   gpu.triMaterial.update(mats);
-  const lights = emitters(statics);
+  gpu.attribs.update(attribs);
+  const { lights, windows } = emitters(statics);
   if (!lights.length) throw new Error("no emissive triangles: nothing would be lit");
-  const lightBuffer = buffer(lights.byteLength, "lights");
-  lightBuffer.update(lights);
+  gpu.lights = buffer(lights.byteLength, "lights");
+  gpu.lights.update(lights);
+  const arrays = await textures;
+  // per material id (0 = nothing): colour, roughness, metal, texture layer, as the G-buffer has them
+  const table = new Float32Array(8 * (gbuffer.materials.length + 1));
+  gbuffer.materials.forEach((m, i) => {
+    const c = m.albedoColor;
+    table.set([c.r, c.g, c.b, m.roughness ?? 1, m.metallic ?? 0, arrays.layer(m)], 8 * (i + 1));
+  });
+  gpu.materials = buffer(table.byteLength, "materials");
+  gpu.materials.update(table);
 
   // every frame: skin + refit the player, place the instances, rebuild the TLAS
   const instances = new Float32Array(20 * blases.length);
@@ -75,7 +92,7 @@ export async function createRTScene(scene, office, player, gbuffer) {
   const toObject = new Matrix();
   const playerBoxes = new Float32Array(6 * skinned.mats.length);
   // ms per frame, smoothed: total, skin, triangles + refit, player upload, instances + TLAS
-  const stats = { triangles, nodes: nodeCount, lights: lights.length / 20, buildMs, ms: [0, 0, 0, 0, 0] };
+  const stats = { triangles, nodes: nodeCount, lights: lights.length / 20, windows, buildMs, ms: [0, 0, 0, 0, 0] };
   let frame = -1;
   let moved = true;
   scene.onBeforeRenderTargetsRenderObservable.add(() => {
@@ -123,8 +140,10 @@ export async function createRTScene(scene, office, player, gbuffer) {
     get moved() {
       return moved;
     },
-    /** The emissive triangles: 5 vec4f each (v0 + area, e1 + radius, e2, normal, emission), world space. */
-    lights: lightBuffer,
+    /** How many of the lights come first as the window panes (the sun's portals). */
+    windows,
+    /** Texture arrays for hit shading: `albedo` (linear) and `orm`, layers as in the material table. */
+    textures: arrays,
     /** The player's posed triangles, world space: vertices (3 floats each), corners (3 per triangle), material ids. */
     pose: () => ({ verts: skinned.verts, corners: skinned.corners, mats: skinned.mats }),
     /** Bind the scene buffers to a compute shader whose source includes trace.wgsl: only those it
@@ -132,14 +151,16 @@ export async function createRTScene(scene, office, player, gbuffer) {
     bind(cs, names = NAMES) {
       for (const name of names) cs.setStorageBuffer(name, gpu[name]);
     },
-    bindings: Object.fromEntries(NAMES.map((name, i) => [name, { group: 1, binding: i }])),
+    bindings: Object.fromEntries([...NAMES, ...SHADING].map((name, i) => [name, { group: 1, binding: i }])),
   };
 }
 
 // every emissive triangle of the meshes, world space, facing where its vertex normals face; 20
-// floats each: v0, area, e1, radius (centroid to the farthest corner), e2, 0, normal, 0, emission, 0
+// floats each: v0, area, e1, radius (centroid to the farthest corner), e2, alias threshold, normal,
+// alias (u32), emission, pdf. The window panes (material "Daylight") come first. pdf ∝ power
+// (luminance × area), sampled in O(1) with Vose's alias table.
 function emitters(meshes) {
-  const out = [];
+  const out = [], windowTris = [];
   const sub = (a, b) => a.map((x, k) => x - b[k]);
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   for (const m of meshes) {
@@ -162,37 +183,72 @@ function emitters(meshes) {
         if (dot(n, vn) < 0) [e1, e2, n] = [e2, e1, n.map((x) => -x)];
         const centre = a.map((x, k) => x + (e1[k] + e2[k]) / 3);
         const radius = Math.max(...[a, b, c].map((v) => Math.hypot(...sub(v, centre))));
-        out.push(...a, len / 2, ...e1, radius, ...e2, 0, ...n, 0, e.r, e.g, e.b, 0);
+        (material.name === "Daylight" ? windowTris : out).push([...a, len / 2, ...e1, radius, ...e2, 0, ...n, 0, e.r, e.g, e.b, 0]);
       }
     }
   }
-  return Float32Array.from(out);
+  const lights = Float32Array.from([...windowTris, ...out].flat());
+  const bits = new Uint32Array(lights.buffer);
+  const n = lights.length / 20;
+  const power = Array.from({ length: n }, (_, i) => (0.2126 * lights[20 * i + 16] + 0.7152 * lights[20 * i + 17] + 0.0722 * lights[20 * i + 18]) * lights[20 * i + 3]);
+  const total = power.reduce((s, x) => s + x, 0);
+  const scaled = power.map((x) => (x * n) / total);
+  const small = [], large = [];
+  scaled.forEach((x, i) => (x < 1 ? small : large).push(i));
+  for (let i = 0; i < n; i++) (lights[20 * i + 11] = 1), (bits[20 * i + 15] = i), (lights[20 * i + 19] = power[i] / total);
+  while (small.length && large.length) {
+    const s = small.pop(), l = large.pop();
+    lights[20 * s + 11] = scaled[s];
+    bits[20 * s + 15] = l;
+    scaled[l] += scaled[s] - 1;
+    (scaled[l] < 1 ? small : large).push(l);
+  }
+  return { lights, windows: windowTris.length };
 }
 
-// triangles of some meshes: their vertices concatenated (world space or each mesh's own), the 3
-// corner indices and the G-buffer material id of each triangle
-function gather(meshes, gbuffer, world) {
-  const verts = [], corners = [], mats = [];
+// triangles of some meshes: their vertices concatenated (world space or each mesh's own), with
+// normals (same space; 0 when `normals` is false: the skinned player shades with face normals) and
+// UVs, the 3 corner indices, the G-buffer material id of each triangle and its texture LOD constant
+// (ray cones: 0.5 log2 of texels per world area, from the world-space triangle)
+function gather(meshes, gbuffer, world, normals = true) {
+  const verts = [], norms = [], uvs = [], corners = [], mats = [], lods = [];
   let base = 0;
   for (const m of meshes) {
     const p = m.getVerticesData("position");
+    const nrm = m.getVerticesData("normal");
+    const uv = m.getVerticesData("uv") ?? new Float32Array((2 * p.length) / 3);
     const idx = m.getIndices();
     const w = m.computeWorldMatrix(true).m;
+    const wp = [];
     for (let i = 0; i < p.length; i += 3) {
-      if (world) verts.push(...transform(w, p[i], p[i + 1], p[i + 2]));
+      wp.push(transform(w, p[i], p[i + 1], p[i + 2]));
+      if (world) verts.push(...wp.at(-1));
       else verts.push(p[i], p[i + 1], p[i + 2]);
+      // shortcut: the world matrix's own 3×3 for normals, exact for the office's uniform scales
+      const n = !normals ? [0, 0, 0] : world ? transform(w, nrm[i], nrm[i + 1], nrm[i + 2]).map((x, k) => x - w[12 + k]) : [nrm[i], nrm[i + 1], nrm[i + 2]];
+      const len = Math.hypot(...n) || 1;
+      norms.push(...n.map((x) => x / len));
     }
+    uvs.push(...uv);
     for (const sm of m.subMeshes) {
       const material = m.material instanceof MultiMaterial ? m.material.subMaterials[sm.materialIndex] : m.material;
       const id = gbuffer.materials.indexOf(material) + 1;
       for (let i = sm.indexStart; i < sm.indexStart + sm.indexCount; i += 3) {
-        corners.push(base + idx[i], base + idx[i + 1], base + idx[i + 2]);
+        const [a, b, c] = [0, 1, 2].map((k) => idx[i + k]);
+        corners.push(base + a, base + b, base + c);
         mats.push(id);
+        const e1 = wp[b].map((x, k) => x - wp[a][k]), e2 = wp[c].map((x, k) => x - wp[a][k]);
+        const area = Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]);
+        const uvArea = Math.abs((uv[2 * b] - uv[2 * a]) * (uv[2 * c + 1] - uv[2 * a + 1]) - (uv[2 * c] - uv[2 * a]) * (uv[2 * b + 1] - uv[2 * a + 1]));
+        lods.push(area > 0 && uvArea > 0 ? 0.5 * Math.log2((uvArea * SIZE * SIZE) / area) : 0);
       }
     }
     base += p.length / 3;
   }
-  return { verts: Float32Array.from(verts), corners: Uint32Array.from(corners), mats: Uint32Array.from(mats) };
+  return {
+    verts: Float32Array.from(verts), norms: Float32Array.from(norms), uvs: Float32Array.from(uvs),
+    corners: Uint32Array.from(corners), mats: Uint32Array.from(mats), lods: Float32Array.from(lods),
+  };
 }
 
 // the meshes' vertices skinned like the raster does (finalWorld = world × Σ w·bone), world space
@@ -273,6 +329,21 @@ function writeTris(b, tris) {
     tris[o + 1] = verts[v + 1];
     tris[o + 2] = verts[v + 2];
   }
+}
+
+// a BLAS's shading attributes into the shared array, BVH order, 4 vec4f per triangle: (normal,
+// u) of each corner, then (v of each corner, LOD constant)
+function writeAttribs(b, attribs) {
+  b.order.forEach((t, s) => {
+    const o = 16 * (b.triBase + s);
+    for (let c = 0; c < 3; c++) {
+      const v = b.corners[3 * t + c];
+      attribs.set(b.norms.subarray(3 * v, 3 * v + 3), o + 4 * c);
+      attribs[o + 4 * c + 3] = b.uvs[2 * v];
+      attribs[o + 12 + c] = b.uvs[2 * v + 1];
+    }
+    attribs[o + 15] = b.lods[t];
+  });
 }
 
 // a BLAS's nodes into the shared array, child and triangle links made global

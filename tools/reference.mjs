@@ -1,8 +1,8 @@
-// Capture the game's view for the Cycles comparison (M6): converge the traced image with no tone
+// Capture the game's view for the Cycles comparison (M6, M8): converge the traced image with no tone
 // map, export the camera, the posed player and the image, then render the same view in Blender.
 //   node tools/reference.mjs [samples] [url]
 // Writes /tmp/rtshots/reference.json and reference_game.png; Blender writes reference_cycles.exr /
-// .png and the side-by-side blender_src/renders/m6_compare.png.
+// .png and the side-by-side blender_src/renders/compare.png.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 

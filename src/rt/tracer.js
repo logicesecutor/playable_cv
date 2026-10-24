@@ -8,21 +8,22 @@ import "@babylonjs/core/Engines/WebGPU/Extensions/engine.computeShader.js";
 import trace from "./trace.wgsl?raw";
 import brdf from "./brdf.wgsl?raw";
 import cameraRay from "./camera.wgsl?raw";
-import direct from "./direct.compute.wgsl?raw";
+import lighting from "./lighting.compute.wgsl?raw";
 
 const GBUFFER = ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"];
 
 /**
- * The lighting passes, after the G-buffer every frame. M6: direct light (direct.compute.wgsl).
- * Default: one noisy sample per pixel and frame in `diffuse` (without the albedo) and `specular`,
+ * The lighting pass, after the G-buffer every frame (lighting.compute.wgsl): direct light, one
+ * diffuse and one glossy bounce, and the sun through the windows: `sun` = { elevation, azimuth
+ * (degrees; azimuth 0 = straight in through the windows, along −X), irradiance }. Default: one noisy sample per pixel and frame in `diffuse` (without the albedo) and `specular`,
  * for denoise.js. `reference` (?denoise=0): accumulated while the camera and the loose bodies are
  * still; `radiance` holds the mean so far (linear, count in alpha). The outputs the mode does not
  * use are 1×1 (the shader still binds them).
  */
-export function createTracer(scene, camera, gbuffer, rt, reference) {
+export function createTracer(scene, camera, gbuffer, rt, reference, sun) {
   const engine = scene.getEngine();
   const { mrt } = gbuffer;
-  const cs = new ComputeShader("direct", engine, { computeSource: trace + brdf + cameraRay + direct }, {
+  const cs = new ComputeShader("lighting", engine, { computeSource: trace + brdf + cameraRay + lighting }, {
     bindingsMapping: {
       params: { group: 0, binding: 0 },
       ...Object.fromEntries(GBUFFER.map((name, i) => [name, { group: 0, binding: 1 + i }])),
@@ -30,19 +31,28 @@ export function createTracer(scene, camera, gbuffer, rt, reference) {
       out: { group: 0, binding: 7 },
       diffuseOut: { group: 0, binding: 8 },
       specularOut: { group: 0, binding: 9 },
+      albedoArray: { group: 0, binding: 11 }, // samplers at 10 and 12
+      ormArray: { group: 0, binding: 13 },
       ...rt.bindings,
-      lights: { group: 1, binding: 5 },
     },
   });
-  const params = new UniformBuffer(engine, undefined, undefined, "direct");
+  const params = new UniformBuffer(engine, undefined, undefined, "lighting");
   params.addUniform("invViewProjection", 16);
   params.addUniform("eye", 4);
   params.addUniform("size", 4);
   params.addUniform("jitter", 4);
+  params.addUniform("sun", 4);
+  params.addUniform("sunColor", 4);
   params.create();
   cs.setUniformBuffer("params", params);
-  rt.bind(cs, ["nodes", "tris", "instances", "tlas"]); // no triMaterial: shadow rays need no material
-  cs.setStorageBuffer("lights", rt.lights);
+  rt.bind(cs, ["nodes", "tris", "triMaterial", "instances", "tlas", "lights", "attribs", "materials"]);
+  cs.setTexture("albedoArray", rt.textures.albedo, true);
+  cs.setTexture("ormArray", rt.textures.orm, true);
+  // towards the sun: out through the windows (+X), azimuth turning towards +Z
+  const [elevation, azimuth] = [sun.elevation, sun.azimuth].map((x) => (x * Math.PI) / 180);
+  const toSun = [Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)];
+  const sunColor = [1, 0.93, 0.84].map((c) => c * sun.irradiance); // warm white, luminance ≈ 0.94
+  const sunRadius = (0.265 * Math.PI) / 180;
 
   let accum, radiance, diffuse, specular;
   const texture = (w, h) => RawTexture.CreateRGBAStorageTexture(null, w, h, scene, false, false,
@@ -78,7 +88,10 @@ export function createTracer(scene, camera, gbuffer, rt, reference) {
     params.updateMatrix("invViewProjection", vp.invertToRef(inverse));
     params.updateFloat4("eye", eye.x, eye.y, eye.z, 1);
     params.updateFloat4("size", mrt.getRenderWidth(), mrt.getRenderHeight(), frame++, reset ? 1 : 0);
-    params.updateFloat4("jitter", gbuffer.jitter.x, gbuffer.jitter.y, reference ? 1 : 0, 0);
+    const pixelAngle = (2 * Math.tan(camera.fov / 2)) / mrt.getRenderHeight(); // fov is vertical
+    params.updateFloat4("jitter", gbuffer.jitter.x, gbuffer.jitter.y, reference ? 1 : 0, pixelAngle);
+    params.updateFloat4("sun", ...toSun, Math.cos(sunRadius));
+    params.updateFloat4("sunColor", ...sunColor, rt.windows);
     params.update();
     GBUFFER.forEach((name, i) => cs.setTexture(name, mrt.textures[i], false)); // textures[5] is the depth buffer
     if (cs.dispatch(Math.ceil(mrt.getRenderWidth() / 8), Math.ceil(mrt.getRenderHeight() / 8))) reset = false;
@@ -94,6 +107,8 @@ export function createTracer(scene, camera, gbuffer, rt, reference) {
     get specular() {
       return specular;
     },
+    /** The sun as traced: direction towards it, irradiance (rgb) facing it, angular radius (rad). */
+    sun: { direction: toSun, irradiance: sunColor, radius: sunRadius },
     passes: [cs],
     resize: targets,
   };

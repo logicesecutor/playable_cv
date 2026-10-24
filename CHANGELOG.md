@@ -3,6 +3,55 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-25 — M8: indirect light and reflections
+
+- **Decisions (asked)**: RIS with 16 candidates for every light sample (replaces the all-lights
+  loop); two bounce rays per pixel (cosine diffuse + GGX VNDF glossy); a sun through the windows,
+  default 35° up, 20° azimuth, irradiance 30 (`?sun=elevation,azimuth,irradiance`); hit shading
+  with albedo + roughness/metal textures. Asked on screenshots: exposure **0 EV** (was +1 with direct
+  light only), bounce samples **capped at 10** (like Cycles' indirect clamp: no white specks).
+- `lighting.compute.wgsl` (was `direct.compute.wgsl`): direct light = RIS (16 lights drawn by power
+  from an alias table, weighed by the M6 estimate, one picked, one shadow ray) + the sun: a
+  direction in its disc (0.53°) counts if it crosses a window pane (the first 6 lights, the
+  portals) and nothing before it, so the blinds stripe it. Then one diffuse and one glossy bounce,
+  each shaded at its hit with the same direct light (no emission at hits: p's light sampling
+  counts it). Diffuse bounces go to the diffuse signal, glossy to the specular one: the denoiser
+  is unchanged. Output clamped to finite f16 (a near-mirror at a light's peak overflowed f16 once:
+  Inf → NaN → a black 8×8 square after the à-trous).
+- `brdf.wgsl`: Fresnel and Smith split out; `basis`, `sampleCosine`, `sampleCone`, `sampleGlossy`
+  (GGX visible normals, spherical caps, weight F·G2/G1).
+- `scene.js`: per-triangle attributes in BVH order (vertex normals, UVs, a ray-cone LOD constant;
+  the skinned player uses face normals), a material table (colour, roughness, metal, texture
+  layer per G-buffer material id), the lights with the windows first and Vose's alias table in
+  their padding. `textures.js`: albedo (linear 8-bit) and ORM texture arrays, 512², 12 layers (10
+  macro sets, the player's 2 palettes, white), mips; sampled at the ray cone's LOD. The lighting
+  pass binds 9 storage buffers (WebGPU's default is 8; the engine asks for the adapter's maximum).
+- `?sun=`, `__game.tracer.sun`; `tools/reference.mjs` exports the sun and the local Blender script
+  renders one bounce with a sun lamp, the wall behind the panes cut away (boolean) and the panes
+  casting no shadow; side-by-side in `blender_src/renders/compare.png`.
+- **Checked** (headless, UHD 620, 1280×577):
+  - Hit shading vs the raster (primary rays shaded like secondary hits, one frame): albedo within
+    ±19 % on 99.6 % of pixels (micro maps make up the rest), shading normals agree (mean dot 0.996),
+    roughness within 0.2 on 99.9 %. Palette UVs and layer order right.
+  - Cycles, 1 bounce + sun, indirect clamped at 10 in both, 256 vs 512 samples: mean luminance
+    ×1.053 (M6 direct only: ×1.05), 8×8 blocks 77 % within 10 %, 97.9 % within 25 %. By region:
+    the lit bands between the blind shadows ×1.003, the mug ×1.021, the shadowed desk and keyboard
+    ×1.06, the far wall ×0.91.
+  - Denoised still (12 s) vs the 256-sample `?denoise=0` reference: mean ×0.996, blocks 94 % within
+    5 %, 99.1 % within 10 % (M7: 96 / 99).
+  - Colour bleeding: the light arriving at the mug's foot is warmer than at its top (blue/red 0.90
+    vs 0.95) with the diffuse bounce, both bluish without it (0.81 / 0.78, the sky panes).
+  - The diffuse bounce adds ~8 % on the desk and doubles the light on the mug (it faces the room,
+    not the panels). Reflections: on the desk just below the mug the glossy bounce adds 76 % to the
+    specular signal, red 3× green (the mug in the laminate); the panels' highlights were already
+    there through light sampling.
+- Known: **cost on the UHD 620: lighting ~400 ms** (was 104; denoiser unchanged): each ray costs 35–65 ms here (37 ms
+  for the primary shadow ray, ~64 per bounce ray, ~100 per hit's light sampling) and a pixel traces
+  6–8. 2 fps; M9's low preset must cut rays (half-rate or half-resolution bounces). Desk and
+  keyboard ~6 % brighter than Cycles in shadow (the M6 offset of the panels' light), the far wall
+  9 % darker (not traced down). No MIS: reflections of the panels in the near-mirror ceramic rely on
+  light sampling alone (noisy), and the sun only lights what sees a pane, as intended.
+
 ## 2026-10-24 — M7: denoiser
 
 - **Decisions (asked)**: diffuse and specular denoised apart; TAA with a jittered G-buffer; history
@@ -104,7 +153,8 @@ what was done, files, how it was checked, known issues, and what comes next.
   shadow; 35 % of shadow rays blocked by real geometry (partitions, monitor). Walking speed checked
   in simulated time.
 - Known: **9–10 fps on the UHD 620** (60 before M6): the shadow rays through the BVH are the cost
-  (stack size made no difference); M9 presets. Any camera move restarts the image, so while moving it
+  (stack size made no difference; corrected in M8: the 176-light weighing loop was ~80 ms of the
+  104, the shadow ray ~25); M9 presets. Any camera move restarts the image, so while moving it
   is 1 sample per pixel: the denoiser is M7. Babylon's frame delta under-reports time at low fps, so
   the game runs slow in wall time there. Tone map/exposure chosen without indirect light (M8).
 - Next: M7, denoiser.

@@ -28,9 +28,10 @@ only by an explicit decision.
 | Fluid | **Coffee mug spill on the desk**, **MLS-MPM** solver in WGSL, rendered as a **mesh in a BVH** (GPU marching cubes + GPU LBVH every frame), **two-way coupled** with the rigid bodies and the player (forces read back from the GPU 1 frame late). | 2026-10-24 |
 | G-buffer (M4) | **Own WGSL `ShaderMaterial`** into one 5-target `MultiRenderTarget`: the macro + micro blend lives once in `src/rt/surface.wgsl`, which the ray tracer's hit shading reuses; motion vectors from last frame's world matrices and bones. | 2026-10-24 |
 | Screen until M6 | **Albedo × a fake sun and sky** from the G-buffer normal + emission; keys 1–7 show the raw targets. | 2026-10-24 |
-| Light selection (M6) | **Weigh all emissive triangles** (176) per sample by an unshadowed estimate, one reservoir pass; no light tree. | 2026-10-24 |
-| Tone map (M6) | **AgX at +1 EV**, URL `?tm=` / `?ev=` to compare; revisit the exposure once indirect light lands (M8). | 2026-10-24 |
+| Light selection (M6) | **Weigh all emissive triangles** (176) per sample by an unshadowed estimate, one reservoir pass; no light tree. Replaced by RIS in M8 (the loop was ~80 % of the pass). | 2026-10-24 |
+| Tone map (M6) | **AgX**, URL `?tm=` / `?ev=` to compare; +1 EV with direct light only, **0 EV since M8** (asked on screenshots with indirect light and the sun). | 2026-10-24 |
 | Denoiser (M7) | **Diffuse and specular filtered apart** (diffuse divided by the albedo), **TAA + sub-pixel jitter** of the G-buffer raster, **history capped at 32 frames** (anti-lag clamp for moving shadows); the M6 converging image stays behind `?denoise=0` as the reference. | 2026-10-24 |
+| Indirect light (M8) | **RIS with 16 candidates** (drawn by power from an alias table, weighed by the M6 estimate) for every light sample, replacing the all-lights loop; **two bounce rays per pixel**: cosine diffuse + GGX VNDF glossy, each with light sampling at the hit (no emission at hits); **a sun through the windows** (the panes are its portals; default 35° up, 20° azimuth, irradiance 30, warm white); **bounce samples capped at 10** (fireflies); hit shading with **albedo + roughness/metal** from texture arrays (512², mips by ray cone), vertex normals, no normal or micro maps. | 2026-10-25 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
 | Cleanup | **The old CV game is deleted on this branch** (code, docs, tools, models except `player_corporate.glb`), the new game lives at the repo root. `main` and git history keep everything. | 2026-10-24 |
 
@@ -192,6 +193,11 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   windows; texture fetch at secondary hits through the texture arrays.
 - **Check**: colour bleeding of the laminate onto the mug; the panels reflected in the desk; Cycles
   comparison again.
+- Done as: `lighting.compute.wgsl` (was direct): direct light = RIS (16 candidates) + the sun
+  (`?sun=elevation,azimuth,irradiance`, a disc sampled per light sample, kept if it crosses a
+  window pane before anything else); per pixel one diffuse and one glossy bounce shaded at the hit
+  with the same direct light. `scene.js` adds per-triangle normals/UVs/LOD, a material table and
+  the alias table (window panes first); `textures.js` the albedo and ORM arrays.
 
 ### M9 — Quality presets and profiling
 - GPU timestamp per pass in the HUD, the low preset, auto-detection, `?q=` override.

@@ -1,6 +1,6 @@
 // Evaluated in the game page by tools/shot.mjs (see tools/reference.mjs): freezes the animations,
 // lets the traced image converge, and returns what blender_src/scripts/render_reference.py needs to
-// render the same view in Cycles: the camera, the posed player (world positions, skinned normals,
+// render the same view in Cycles: the camera, the sun, the posed player (world positions, skinned normals,
 // UVs, material names per triangle) and the converged linear radiance in 8×8-pixel block means.
 (async () => {
   const g = __game, scene = g.scene, camera = g.player.camera, wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +52,7 @@
   return {
     size: [w, h],
     camera: { position: camera.globalPosition.asArray(), target: target.asArray(), fov: camera.fov },
+    sun: g.tracer.sun,
     samples: r[3],
     player: {
       verts: Array.from(pose.verts, (v) => +v.toFixed(5)),

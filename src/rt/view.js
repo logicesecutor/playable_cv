@@ -24,12 +24,12 @@ const TONE_MAPS = ["none", "agx", "aces"];
  * (`image.radiance`: denoise.js, or the reference of tracer.js), the
  * others debug views. Modes 8 and 9 trace one camera ray per pixel through the BVHs
  * (bvhview.compute.wgsl), only while they are on. URL: ?tm=none|agx|aces (tone map), ?ev= (exposure;
- * default +1 EV, chosen on M6 screenshots with direct light only: look again once M8 adds indirect).
+ * default 0 EV, chosen on M8 screenshots with indirect light; M6 had +1 with direct light only).
  */
 export function createView(scene, camera, gbuffer, rt, image) {
   const url = new URLSearchParams(location.search);
   const toneMap = Math.max(0, TONE_MAPS.indexOf(url.get("tm") ?? "agx"));
-  const ev = Number(url.get("ev") ?? 1);
+  const ev = Number(url.get("ev") ?? 0);
   const engine = scene.getEngine();
   let mode = 0;
   const { mrt } = gbuffer;

@@ -61,7 +61,9 @@ async function main() {
   const rt = await createRTScene(scene, office, player, gbuffer);
   // ?denoise=0: the reference, accumulated while still (M6), instead of the denoised image
   const reference = url.get("denoise") === "0";
-  const tracer = createTracer(scene, player.camera, gbuffer, rt, reference);
+  // ?sun=elevation,azimuth,irradiance (degrees, degrees, W/m²-like units of the scene's emission)
+  const [elevation, azimuth, irradiance] = (url.get("sun") ?? "35,20,30").split(",").map(Number);
+  const tracer = createTracer(scene, player.camera, gbuffer, rt, reference, { elevation, azimuth, irradiance });
   const denoiser = reference ? null : createDenoiser(scene, player.camera, gbuffer, tracer);
   const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer);
   // ms per compute pass, averaged over the last second (with ?timing)
