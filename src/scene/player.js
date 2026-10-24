@@ -26,7 +26,6 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
   const model = c.meshes[0]; // __root__
   model.scaling.setAll(HEIGHT / MODEL_HEIGHT);
   model.rotationQuaternion = null; // facing through rotation.y
-  c.materials.forEach((m) => (m.unlit = true)); // M3 preview like the office: the ray tracer lights it from M6
   const clips = Object.fromEntries(c.animationGroups.map((g) => [g.name.split("|")[1], g]));
   c.animationGroups.forEach((g) => g.stop());
   for (const name of LOOP_CLIPS) {

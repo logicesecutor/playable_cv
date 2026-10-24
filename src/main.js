@@ -8,10 +8,11 @@ import HavokPhysics from "@babylonjs/havok";
 import { loadOffice } from "./scene/office.js";
 import { createPlayer } from "./scene/player.js";
 import { mugControls } from "./scene/mug.js";
+import { createGBuffer } from "./rt/gbuffer.js";
 
 const canvas = document.getElementById("view");
 const hud = document.getElementById("hud");
-const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset";
+const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset · 0–7 views";
 const SPAWN = new Vector3(2, 67.6, -6); // on the desk between the keyboard and the monitor (desk top y 66.6)
 
 async function main() {
@@ -30,7 +31,8 @@ async function main() {
   const office = await loadOffice(scene);
   const player = await createPlayer(scene, canvas, SPAWN, office.mug.mesh.position);
   const mug = mugControls(office, player);
-  window.__game = { scene, office, player, mug }; // for the console and tools/shot.mjs
+  const gbuffer = createGBuffer(scene, player.camera);
+  window.__game = { scene, office, player, mug, gbuffer }; // for the console and tools/shot.mjs
 
   let hudAt = 0;
   engine.runRenderLoop(() => {
@@ -38,10 +40,13 @@ async function main() {
     const now = performance.now();
     if (now >= hudAt) {
       hudAt = now + 500;
-      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${HINT}`;
+      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${gbuffer.view} · ${HINT}`;
     }
   });
-  addEventListener("resize", () => engine.resize());
+  addEventListener("resize", () => {
+    engine.resize();
+    gbuffer.resize();
+  });
 }
 
 main().catch((e) => {

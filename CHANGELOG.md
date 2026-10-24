@@ -3,6 +3,50 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M4: G-buffer
+
+- **Decisions (asked)**: our own WGSL material shader (not Babylon's GeometryBufferRenderer, not a
+  visibility buffer); until M6 the screen shows albedo × a fake sun and sky.
+- `src/rt/gbuffer.js` (`createGBuffer(scene, camera)` → `{ mrt, materials, view, resize }`):
+  - One `MultiRenderTarget` (`generateDepthBuffer`, nearest, no mips, cleared to 0) with every mesh
+    that has vertices in its `renderList`; it renders as a scene custom render target. The camera's
+    own pass draws nothing (`camera.layerMask = 0`), so skinned meshes are not prepared by the scene:
+    `skeleton.prepare()` is called before the render targets.
+  - Layout, 32 B/px (WebGPU's default `maxColorAttachmentBytesPerSample`): 0 rgba8 √albedo
+    (fewer bands in dark albedo) + metal; 1 rgba16f world normal + roughness; 2 rgba16f emission
+    (factor × strength, e.g. panels 4) + material id; 3 r32f distance from the camera along the
+    ray (0 = nothing hit); 4 rg16f motion = last uv − uv. No geometric normal: M6 offsets rays along
+    the shading normal.
+  - One `ShaderMaterial` per source material (MultiMaterials of the merged props mapped sub by sub),
+    put on the meshes with `setMaterialForRendering` (the PBR materials stay, as the source for the
+    M5 material table). Material id = 1 + index in `materials`. Office sets: albedo (sRGB buffer,
+    hardware decode), normal, ORM, micro textures loaded once with `invertY: false` (glTF UVs),
+    anisotropy 8; the player's palette texture comes from the glTF loader (already an sRGB buffer).
+  - Motion: per mesh last frame's world matrix (set in `onBind`), last frame's view-projection, and
+    for skinned meshes last frame's bones (`mPreviousBones`; bones moved from a texture to a
+    uniform array, `useTextureToStoreBoneMatrices = false`; the array is bones + 1 long).
+  - View pass: a WGSL `PostProcess` on the camera reads the targets with `textureLoad`; keys 0–7:
+    shaded, albedo, normal, roughness/metal, emission, material id, distance, motion. The HUD shows
+    the view name.
+- `src/rt/gbuffer.vertex.wgsl`, `gbuffer.fragment.wgsl`: Babylon's WGSL bone includes; tangent
+  frame from screen derivatives (the export has no tangents), solved exactly for dp/du, dp/dv;
+  tangent-space +Y = −v (glTF images start at the top). `src/rt/surface.wgsl`: `microBlend()`, the
+  M2 macro + micro blend (same formulas as `make_materials.closeup`), shared with the ray tracer.
+  `src/rt/view.fragment.wgsl`: the view pass.
+- `office.js` loses `previewMaterials` and `player.js` its unlit line (the G-buffer replaces both).
+  New side-effect import needed: `Engines/WebGPU/Extensions/engine.multiRender.js`.
+- **Checked** (headless Chrome, UHD 620 laptop): 60 fps (vsync cap); `npm run build` passes; each
+  view screenshot looks right (desk normal +Y, glazed mug roughness near 0, distinct ids, distance
+  gradient, emission only on the ceiling panels and the monitor); motion read back from the GPU:
+  still camera → static world max 0.0002 px, the idling figure 0.15 px; walking → the world
+  expands from the centre (up to 5.6 px/frame at the corners). The figure's centroid really moves
+  3–16 px between frames while walking (the Walk clip bounces the body; the camera and the model
+  root are steady to 1 mm), and its motion vectors follow it. Resize keeps the targets in step.
+- Known / not checked: normal-map handedness is derived, not measured (the M6 Cycles comparison
+  will show it); the shaded view is a stand-in; the figure's walk bounce makes the over-the-shoulder
+  view bob (M3 behaviour, worth a look when you play it); no GPU timing yet (M9).
+- Next: M5, the BVH and scene upload.
+
 ## 2026-10-24 — M3: scene, player and physics (raster preview)
 
 - **Decisions (asked)**: pointer lock (click the canvas), over-the-shoulder camera, the figure

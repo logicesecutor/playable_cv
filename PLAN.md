@@ -26,6 +26,8 @@ only by an explicit decision.
 | Material detail (M2) | **Macro + micro layers**: a 2 cm player sees ~26 mm of desk across the screen, so one texture scale is either blurry up close or repeats visibly far away. Each material = a macro set (colour, grain, wear over 0.1–0.6 m) + a shared micro set (scratches, pores, fibres, stipple, glaze over 3 cm) blended into albedo, normal and roughness. | 2026-10-24 |
 | Art direction (M2) | **Realistic office**: photoreal surfaces (wood-grain laminate with fine scratches, glazed ceramic, paper fibres, low-pile carpet), colours close to today's palette (beige laminate, red mug). | 2026-10-24 |
 | Fluid | **Coffee mug spill on the desk**, **MLS-MPM** solver in WGSL, rendered as a **mesh in a BVH** (GPU marching cubes + GPU LBVH every frame), **two-way coupled** with the rigid bodies and the player (forces read back from the GPU 1 frame late). | 2026-10-24 |
+| G-buffer (M4) | **Own WGSL `ShaderMaterial`** into one 5-target `MultiRenderTarget`: the macro + micro blend lives once in `src/rt/surface.wgsl`, which the ray tracer's hit shading reuses; motion vectors from last frame's world matrices and bones. | 2026-10-24 |
+| Screen until M6 | **Albedo × a fake sun and sky** from the G-buffer normal + emission; keys 1–7 show the raw targets. | 2026-10-24 |
 | Spill trigger | **Key press + reset**: `F` shoves the mug (Havok impulse), `R` refills it and stands it up. | 2026-10-24 |
 | Cleanup | **The old CV game is deleted on this branch** (code, docs, tools, models except `player_corporate.glb`), the new game lives at the repo root. `main` and git history keep everything. | 2026-10-24 |
 
@@ -48,7 +50,7 @@ src/core/hud.js             fps, per-pass GPU timings, debug-view picker
 src/scene/office.js         office.glb at ×90, static colliders, light list (from emissive triangles)
 src/scene/player.js         player_corporate, Havok character controller, clips, 3rd-person camera
 src/scene/mug.js            the mug rigid body, F / R
-src/rt/gbuffer.js           MRT raster: albedo, normal, ORM + material id, depth, motion
+src/rt/gbuffer.js           MRT raster: albedo + metal, normal + roughness, emission + material id, distance, motion
 src/rt/scene.js             packs triangles, materials, texture arrays and lights for the GPU
 src/rt/bvh.js               CPU SAH BVH build (worker) + TLAS of instances; refit for the player
 src/rt/tracer.js            the compute passes: direct, GI, reflections, refraction
@@ -143,8 +145,9 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 - **Check**: walk the desk, F knocks the mug over, R resets; fps logged.
 
 ### M4 — G-buffer
-- MRT pass: albedo (rgba8), world normal + roughness (rgba16f), metal + material id + emissive,
-  linear depth, motion vectors. Debug views on keys 1–6.
+- MRT pass (32 B/px, WebGPU's default limit): √albedo + metal (rgba8), world normal + roughness
+  (rgba16f), emission + material id (rgba16f), distance along the camera ray (r32f), motion in uv
+  (rg16f). View 0 = fake-lit preview, debug views on keys 1–7.
 - **Check**: each debug view screenshot looks right; motion vectors are zero when still.
 
 ### M5 — BVH and scene upload

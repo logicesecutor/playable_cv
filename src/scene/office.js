@@ -1,6 +1,5 @@
 import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader.js";
 import "@babylonjs/loaders/glTF/index.js";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate.js";
@@ -21,7 +20,6 @@ export async function loadOffice(scene) {
   c.addAllToScene();
   c.meshes[0].scaling.setAll(SCALE); // __root__
   c.meshes[0].computeWorldMatrix(true);
-  previewMaterials(scene, c.materials);
 
   const bodies = [];
   const loose = new Set();
@@ -103,17 +101,4 @@ function cupShape(cup, density, scene) {
     add(new PhysicsShapeBox(at, Quaternion.RotationAxis(Vector3.Up(), -a), new Vector3(wall, h, width), scene));
   }
   return shape;
-}
-
-/** M3 preview until the ray tracer lights the scene (M6): unlit albedo, macro texture only. */
-function previewMaterials(scene, materials) {
-  const albedo = {};
-  for (const m of materials) {
-    m.unlit = true;
-    const set = m.metadata?.gltf?.extras?.set;
-    if (set) {
-      m.albedoTexture = albedo[set] ??= new Texture(`textures/${set}_albedo.jpg`, scene);
-      m.albedoTexture.anisotropicFilteringLevel = 8;
-    }
-  }
 }
