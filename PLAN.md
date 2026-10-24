@@ -157,9 +157,12 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   the raster, taken after Babylon's animation update in the same frame, so the BVH copy of the body
   lines up with the drawn one (else shadow rays start inside it and speckle the figure).
 - WGSL traversal (stack-based, nearest hit + any hit for shadows).
-- **Check**: `tools/test-bvh.mjs`: 100k random rays, BVH result = brute force; a GPU debug view
-  that shows the BVH hit distance and the traversal heat map; in M6, a running player shows no
-  self-shadow speckles.
+- Uploaded now: triangles (positions) and their material ids. The light list comes with M6, the
+  texture arrays and per-vertex normals/UVs with M8, when they are first used.
+- **Check**: `tools/test-bvh.mjs`: 100k random rays, BVH result = brute force; GPU debug views
+  (keys 8, 9): one camera ray per pixel through the BVHs compared with the raster G-buffer
+  (distance and material id, read back: ≥ 99.5 % of pixels equal, still, walking and with the mug
+  falling) and the traversal heat map.
 
 ### M6 — Direct lighting
 - From the G-buffer: GGX specular + Lambert diffuse, NEE over the area lights (pick by power and

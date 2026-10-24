@@ -3,28 +3,21 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
-import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
-import { PostProcess } from "@babylonjs/core/PostProcesses/postProcess.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import "@babylonjs/core/ShadersWGSL/ShadersInclude/bonesDeclaration.js";
 import "@babylonjs/core/ShadersWGSL/ShadersInclude/bonesVertex.js";
-import "@babylonjs/core/ShadersWGSL/postprocess.vertex.js";
 import "@babylonjs/core/Engines/WebGPU/Extensions/engine.multiRender.js";
 import surface from "./surface.wgsl?raw";
 import vertexSource from "./gbuffer.vertex.wgsl?raw";
 import fragment from "./gbuffer.fragment.wgsl?raw";
-import view from "./view.fragment.wgsl?raw";
 
-const VIEWS = ["shaded", "albedo", "normal", "roughness/metal", "emission", "material id", "distance", "motion"];
 const { TEXTURETYPE_UNSIGNED_BYTE: U8, TEXTURETYPE_HALF_FLOAT: F16, TEXTURETYPE_FLOAT: F32 } = Constants;
 const { TEXTUREFORMAT_RGBA: RGBA, TEXTUREFORMAT_R: R, TEXTUREFORMAT_RG: RG } = Constants;
-ShaderStore.ShadersStoreWGSL.gbufferViewFragmentShader = view;
 
 /**
  * The G-buffer: every mesh rasterized once into 5 targets (layout in gbuffer.fragment.wgsl) with
- * our material shader, then shown by a full-screen view pass (keys 0–7) until the ray tracer
- * replaces it. The camera's own pass draws nothing (layerMask 0). `materials[id - 1]` is the source
+ * our material shader; view.js shows them. The camera's own pass draws nothing (layerMask 0). `materials[id - 1]` is the source
  * material behind each material id (0 = nothing hit).
  */
 export function createGBuffer(scene, camera) {
@@ -109,9 +102,10 @@ export function createGBuffer(scene, camera) {
     mrt.setMaterialForRendering(m, gbufferMaterial(m.material));
     prev.set(m, { world: m.computeWorldMatrix(true).clone(), bones: m.skeleton && new Float32Array(16 * (m.skeleton.bones.length + 1)) }); // BonesPerMesh = bones + 1
   }
-  // the camera's pass skips every mesh, so their skeletons are not prepared by the scene
+  // the camera's pass skips every mesh, so their skeletons are not prepared by the scene. Forced:
+  // prepare() skips a render id it has seen, and this observable also fires at the end of a frame
   scene.onBeforeRenderTargetsRenderObservable.add(() => {
-    skinned.forEach((m) => m.skeleton.prepare());
+    skinned.forEach((m) => m.skeleton.prepare(true));
     for (const g of made.values()) g.setMatrix?.("prevViewProjection", prevViewProjection);
   });
   scene.onAfterRenderObservable.add(() => {
@@ -122,29 +116,9 @@ export function createGBuffer(scene, camera) {
     prevViewProjection.copyFrom(camera.getTransformationMatrix());
   });
 
-  let mode = 0;
-  const pass = new PostProcess("gbufferView", "gbufferView", {
-    uniforms: ["mode", "size"],
-    samplers: ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"],
-    camera,
-    shaderLanguage: ShaderLanguage.WGSL,
-  });
-  pass.onApply = (effect) => {
-    mrt.textures.forEach((t, i) => effect.setTexture(["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"][i], t));
-    effect.setFloat("mode", mode);
-    effect.setFloat2("size", mrt.getRenderWidth(), mrt.getRenderHeight());
-  };
-  addEventListener("keydown", (e) => {
-    const k = /^Digit([0-7])$/.exec(e.code);
-    if (k) mode = Number(k[1]);
-  });
-
   return {
     mrt,
     materials,
-    get view() {
-      return VIEWS[mode];
-    },
     resize: () => mrt.resize(size()),
   };
 }

@@ -3,6 +3,55 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-24 — M5: BVH and scene upload
+
+- **Decisions (asked)**: as planned: a top-level BVH over the instances rebuilt every frame (not a
+  flat instance list), the static builds in a Web Worker (not on the main thread).
+- `src/rt/bvh.js`: `build(boxes, leafSize = 4)` binary BVH, binned SAH (12 bins, 3 axes, leaf when
+  splitting costs more and ≤ 16 primitives, median split when all centres coincide), iterative;
+  `refit(nodes, boxes, order?)` bottom-up (children always come after their parent);
+  `triangleBoxes`. Node = 32 B: min, first, max, count (count 0 = children at first, first + 1).
+  Plain JS: runs in the page, the worker (`bvh.worker.js`) and Node.
+- `src/rt/scene.js` (`createRTScene(scene, office, player, gbuffer)` → `{ stats, blases, bind(cs),
+  bindings }`): 15 instances: the static office in world space (14,420 − props), the 13 loose bodies
+  each in its own space, the player (2 meshes, 6,072 triangles) in world space. 20,492 triangles,
+  13,583 nodes; built in the worker in ~380 ms; the traversal stack (64) is checked against the
+  depth of every BLAS. Packed into 5 `StorageBuffer`s (bindings in `trace.wgsl`, group 1):
+  `nodes` (links made global), `tris` (3 vec4f per triangle, BVH order), `triMaterial` (the
+  G-buffer's ids), `instances` (world → object matrix, root, id; 80 B) and `tlas`.
+  Every frame, before the render targets: the player skinned on the CPU (same bones and formula as
+  the raster: p × Σ w·bone × world), its triangles rewritten and the BLAS refitted, both uploaded;
+  instance boxes from each BLAS root box × world; the TLAS rebuilt (`build(boxes, 1)`) with the
+  instances written in its order. Cost on the laptop CPU, smoothed (`rt.stats.ms`): 2.9 ms (skin 1.0,
+  triangles + refit 1.25, upload 0.4, instances + TLAS 0.3).
+- `src/rt/trace.wgsl`: `trace(o, d, tmax, anyHit) → Hit {t, tri, inst, uv, steps}`: the TLAS loop
+  calls `traceBlas` per instance leaf with the ray in object space (not renormalised, so t is the
+  same); near child first, slab test with a guarded 1/d, Möller–Trumbore.
+- `src/rt/view.js` takes over the view pass from `gbuffer.js` and adds keys 8 (BVH vs raster:
+  green = same distance (±0.1 %) and material, red = different, blue = only one hit) and 9 (heat
+  map, nodes per ray), from `bvhview.compute.wgsl`: one camera ray per pixel, run only while those
+  views are on. New side-effect import: `Engines/WebGPU/Extensions/engine.computeShader.js`.
+- Bugs met:
+  - Rays were flipped vertically: Babylon flips its projection when rendering into a texture, so
+    NDC y grows down the pixels there (`ndc = (pixel + 0.5) / size × 2 − 1`).
+  - Moving objects lagged one frame in the BVH: before the render targets, `getWorldMatrix()` is
+    still last frame's (the render id only advances inside the render targets): forced
+    `computeWorldMatrix(true)`. And `skeleton.prepare()` skipped the first call of a frame (it had
+    seen that render id at the end of the previous frame, where the observable fires again), so the
+    bones were a frame old for the raster too: `prepare(true)` in `gbuffer.js`.
+  - The per-frame update was 5 ms: allocation-free skin and refit, triangle corners pre-sorted.
+- **Checked**: `node tools/test-bvh.mjs`: 5,000 triangles, 100k rays: 0 mismatches against brute
+  force, and 10k rays after moving every triangle + refit: 0. In the page (headless, UHD 620):
+  BVH vs raster read back from the GPU: 99.6–99.8 % of pixels with the same distance and material,
+  still, walking and with the mug falling (figure 99.8–99.9 %); of the rest, 2,955 of 2,962 are
+  silhouette or material-border pixels, 7 are inside the figure, a few mm off. Heat map: mean 40,
+  max ~120 nodes per camera ray; 51 fps with the debug trace on, 60 without. `npm run build` and
+  the built page (`vite preview`) work, worker included. The walk bounce from M4 is still there
+  with fresh bones (figure top moves between rows 57 and 70): it is the Walk clip.
+- Known: binary BVH and a CPU-skinned player are the simple versions (a wide BVH or GPU skinning +
+  refit if the 3070 profile asks for it in M9); `Hit.uv` is unused until M8.
+- Next: M6, direct lighting. **Ask** first: exposure and tone map.
+
 ## 2026-10-24 — M4: G-buffer
 
 - **Decisions (asked)**: our own WGSL material shader (not Babylon's GeometryBufferRenderer, not a
