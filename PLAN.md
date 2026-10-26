@@ -219,6 +219,13 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
 - **Check**: the mug at rest holds its coffee for 60 s without leaking; a tipped mug empties in a
   plausible time; a spill that reaches the desk edge flows over it; particle count and ms in the
   HUD.
+- Done as: `src/fluid/` (asked: an 80 × 24 × 80 u box around the mug, cells 0.4 / 0.5 / 0.8 u on
+  high / medium / low ≈ 26k / 13k / 3k particles, the mug 80 % full, the debug dots on key P only).
+  nialltl's incremental MLS-MPM in 3D, Tait-like pressure with a little tension; solid nodes count
+  as fluid at rest in the density sum (else the coffee squeezes against the walls). Static clutter
+  is a voxel mask traced once through the BVH. Debug dots: a compute splat, depth-tested against the
+  G-buffer. Checked on the UHD 620 (low); **3070 numbers pending** (`?profile` now lists the MPM
+  passes).
 
 ### M11 — Two-way coupling
 - Grid-to-collider momentum exchange: force and torque per collider summed on the GPU (fixed-point
@@ -256,4 +263,4 @@ target (the Pages workflow is removed in M0).
 | GPU LBVH + marching cubes every frame is the hardest part | Its own milestone with a brute-force check; fallback: rebuild the coffee BVH every 2nd frame. |
 | No dev GPU here: the laptop is a UHD 620, the 3070 is elsewhere | Develop against the low preset here; each milestone's high-preset numbers measured on the 3070 when available. |
 | WebGPU only (no WebGL fallback) | Accepted: the ray tracer needs compute; the boot screen says so. |
-| Fluid scale (coffee in player units is ~300 m³ for a full mug) | ~2-unit grid cells; fill level and particle budget tuned in M10. |
+| Fluid scale (coffee in player units is ~300 m³ for a full mug) | M10: 0.4–0.8 u cells in a box around the mug (the mug is 3.6 u in radius). At 0.8 u the coffee bands into layers and stands ~25 % low at rest: fine for a debug view, to watch when M12 meshes it. |

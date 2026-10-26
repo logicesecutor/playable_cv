@@ -1,11 +1,11 @@
 // Quality presets and profiling (M9). A preset sets the render scale (every target is canvas / scale,
 // the browser upscales), whether the lighting traces its two bounces, and how many à-trous passes run.
-// The first visit probes: presets best first, the first that holds 30 fps is kept and remembered.
+// It also sets the coffee's cell size (M10). The first visit probes: presets best first, the first that holds 30 fps is kept and remembered.
 
 export const PRESETS = {
-  high: { scale: 1, bounces: true, atrous: 5 },
-  medium: { scale: 2, bounces: true, atrous: 5 },
-  low: { scale: 2, bounces: false, atrous: 2 }, // direct light only
+  high: { scale: 1, bounces: true, atrous: 5, cell: 0.4 },
+  medium: { scale: 2, bounces: true, atrous: 5, cell: 0.5 },
+  low: { scale: 2, bounces: false, atrous: 2, cell: 0.8 }, // direct light only, ~8× fewer coffee particles
 };
 const STORE = "rt-office.quality";
 const PROBE_MS = 1000 / 30;

@@ -3,6 +3,44 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-26 — M10: coffee simulation (MLS-MPM)
+
+- **Decisions (asked)**: the grid covers the desk around the mug, 0.4 u cells on high (0.5 medium,
+  0.8 low); the mug starts 80 % full; the particles show only on a debug key (P).
+- `src/fluid/mpm.js` + WGSL (`mpm.wgsl` shared; `clear`, `p2g1`, `p2g2`, `grid`, `g2p` per
+  substep; `mask` once; `splat` + `overlay` for the debug view): nialltl's incremental MLS-MPM in
+  3D, grid units, fixed-point i32 atomics (×1e4). Box 80 × 24 × 80 u around the mug from 4 u under
+  the desk top. Sound speed 50 u/s, dt = 0.35 cell / 50 u/s, up to 12 substeps per frame (beyond:
+  slow motion). Tait-like pressure (power 5, tension down to −0.1 K), viscosity 0.1 × c.
+- Colliders: the desk top (slip, grid and particles); the static clutter as a voxel mask traced
+  once through the office BLAS (3 rays, inside if 2 hit back faces; sticky); the mug as a cup SDF in
+  its frame (grid: slip, walls inflated by half a cell; particles: kept inside the hollow below the
+  rim, pushed out of the wall otherwise); the player as a capsule; the other props as boxes. All
+  move with Havok (one-way until M11). Particles leaving the box sideways or below are removed and
+  counted.
+- Density: solid nodes (mask, desk slab, mug wall) count as fluid at rest in the density sum,
+  otherwise every wall reads as a free surface and the coffee squeezes against it.
+- Debug view (P): each particle a depth-tested disc (atomicMin of distance and speed per pixel),
+  coloured blue (still) → red (20 u/s), composited by `view.js`. HUD: `coffee alive/total ms`.
+  `?profile` and the T table list the MPM passes. Presets set the cell size (`quality.js`). R
+  refills the mug where it stands.
+- `player.js` exposes the capsule and its velocity; `office.js` keeps each body's glTF extras.
+- **Checked** (UHD 620, low, 3060 particles, headless):
+  - At rest for 65 s: 3060/3060 in the mug, mean density 8.02 (rest 8), mean speed 0.25 u/s.
+  - Shoved over (F): 78 % out of the mug after 4.6 s, 96 % after 16 s; the puddle reaches the
+    desk's front edge and falls over it (counted below the desk top), particles leaving the box are
+    removed (2102 left after 16 s). Screenshots: hidden inside the mug at rest, a puddle around the
+    fallen mug.
+  - At 0.4 u (high): the core of the coffee is at rest density ± 5 %, the surface where the volume
+    puts it.
+  - GPU ms on low: clear 2.5, P2G1 18.5, P2G2 5.3, grid 4.3, G2P 2.9 (≈ 30 ms, about 9 substeps at
+    21 fps): the game drops from 30 to 21 fps here. High here: ≈ 187 ms.
+- **Known issues**: at 0.8 u cells (low) the coffee bands into layers and stands ~25 % lower than its
+  volume (the mug is only 4 cells in radius); 0.4 u is fine. P2G1's atomics dominate on the UHD 620.
+  The player and props get no ghost mass in the density sum (`shortcut:` in `p2g2`). The debug dots
+  lag the G-buffer by nothing, the simulation by one frame of physics.
+- **Next**: the 3070 table with `?profile` (MPM rows included); M11 two-way coupling.
+
 ## 2026-10-26 — Running on the dev laptop's own Chrome
 
 - The user's Chrome showed nothing on this laptop: on Linux Chrome gives WebGPU no adapter by

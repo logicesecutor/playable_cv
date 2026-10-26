@@ -122,8 +122,13 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
   return {
     camera,
     model,
+    capsule: { height: HEIGHT, radius: RADIUS },
+    /** The capsule's centre. */
     get position() {
       return ctrl.getPosition();
+    },
+    get velocity() {
+      return ctrl.getVelocity();
     },
   };
 }

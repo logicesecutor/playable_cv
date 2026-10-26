@@ -2,7 +2,8 @@
 // debug views of the G-buffer: 1 albedo, 2 normal, 3 roughness (R) metal (G), 4 emission,
 // 5 material id, 6 distance (log), 7 motion (pixels × 0.1: red +x, green −x, blue |y|);
 // 8 BVH vs raster (green: same distance and material, red: different, blue: only one of them hit);
-// 9 BVH heat map (nodes visited per camera ray, blue 0 → red 200+).
+// 9 BVH heat map (nodes visited per camera ray, blue 0 → red 200+). fluidOn (key P): the coffee's
+// particles over any of them (src/fluid/overlay.compute.wgsl).
 
 var albedoTex : texture_2d<f32>;
 var normalTex : texture_2d<f32>;
@@ -11,7 +12,9 @@ var depthTex : texture_2d<f32>;
 var motionTex : texture_2d<f32>;
 var traceTex : texture_2d<f32>;
 var radianceTex : texture_2d<f32>;
+var fluidTex : texture_2d<f32>;
 uniform mode : f32;
+uniform fluidOn : f32;
 uniform size : vec2f;
 uniform exposure : f32;
 uniform toneMap : f32;
@@ -92,6 +95,10 @@ fn main(input : FragmentInputs) -> FragmentOutputs {
       }
     }
     if (mode == 1 || mode == 4) { c = encode(c); }
+  }
+  if (uniforms.fluidOn > 0.0) {
+    let f = textureLoad(fluidTex, p, 0);
+    if (f.a > 0.0) { c = f.rgb; }
   }
   fragmentOutputs.color = vec4f(c, 1.0);
 }

@@ -26,7 +26,7 @@ const TONE_MAPS = ["none", "agx", "aces"];
  * (bvhview.compute.wgsl), only while they are on. URL: ?tm=none|agx|aces (tone map), ?ev= (exposure;
  * default 0 EV, chosen on M8 screenshots with indirect light; M6 had +1 with direct light only).
  */
-export function createView(scene, camera, gbuffer, rt, image) {
+export function createView(scene, camera, gbuffer, rt, image, fluid) {
   const url = new URLSearchParams(location.search);
   const toneMap = Math.max(0, TONE_MAPS.indexOf(url.get("tm") ?? "agx"));
   const ev = Number(url.get("ev") ?? 0);
@@ -62,8 +62,8 @@ export function createView(scene, camera, gbuffer, rt, image) {
   });
 
   const pass = new PostProcess("gbufferView", "gbufferView", {
-    uniforms: ["mode", "size", "exposure", "toneMap"],
-    samplers: ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex", "traceTex", "radianceTex"],
+    uniforms: ["mode", "size", "exposure", "toneMap", "fluidOn"],
+    samplers: ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex", "traceTex", "radianceTex", "fluidTex"],
     camera,
     shaderLanguage: ShaderLanguage.WGSL,
   });
@@ -71,6 +71,8 @@ export function createView(scene, camera, gbuffer, rt, image) {
     ["albedoTex", "normalTex", "emissionTex", "depthTex", "motionTex"].forEach((name, i) => effect.setTexture(name, mrt.textures[i]));
     effect.setTexture("traceTex", traceTex);
     effect.setTexture("radianceTex", image.radiance);
+    effect.setTexture("fluidTex", fluid.overlayTexture);
+    effect.setFloat("fluidOn", fluid.overlay ? 1 : 0);
     effect.setFloat("exposure", 2 ** ev);
     effect.setFloat("toneMap", toneMap);
     effect.setFloat("mode", mode);

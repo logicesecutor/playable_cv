@@ -13,12 +13,13 @@ import { createRTScene } from "./rt/scene.js";
 import { createView } from "./rt/view.js";
 import { createTracer } from "./rt/tracer.js";
 import { createDenoiser } from "./rt/denoise.js";
+import { createFluid } from "./fluid/mpm.js";
 import { PRESETS, chosenQuality, probe, profile, timings as passTimes } from "./quality.js";
 
 const canvas = document.getElementById("view");
 const hud = document.getElementById("hud");
 const table = document.getElementById("timings");
-const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset · 0–9 views · T timings";
+const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset · 0–9 views · T timings · P coffee";
 const SPAWN = new Vector3(2, 67.6, -6); // on the desk between the keyboard and the monitor (desk top y 66.6)
 
 async function main() {
@@ -71,9 +72,10 @@ async function main() {
   const [elevation, azimuth, irradiance] = (url.get("sun") ?? "35,20,30").split(",").map(Number);
   const tracer = createTracer(scene, player.camera, gbuffer, rt, reference, { elevation, azimuth, irradiance });
   const denoiser = reference ? null : createDenoiser(scene, player.camera, gbuffer, tracer);
-  const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer);
+  const fluid = createFluid(scene, player.camera, gbuffer, rt, office, player);
+  const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer, fluid);
   // GPU ms per pass, 1 s means
-  const timings = () => passTimes(engine, gbuffer, [...tracer.passes, ...(denoiser?.passes ?? [])]);
+  const timings = () => passTimes(engine, gbuffer, [...tracer.passes, ...(denoiser?.passes ?? []), ...fluid.passes]);
 
   const resize = () => {
     engine.resize();
@@ -81,6 +83,7 @@ async function main() {
     tracer.resize();
     denoiser?.resize();
     view.resize();
+    fluid.resize();
   };
   addEventListener("resize", resize);
   let quality = "probing";
@@ -91,6 +94,7 @@ async function main() {
     resize();
     tracer.bounces = p.bounces;
     if (denoiser) denoiser.steps = p.atrous;
+    fluid.setCell(p.cell);
   };
 
   // ?timing: the table shown from the start; T toggles it
@@ -103,7 +107,9 @@ async function main() {
     const now = performance.now();
     if (now >= hudAt) {
       hudAt = now + 500;
-      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${quality} · ${view.name} · ${HINT}`;
+      const c = fluid.stats;
+      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${quality} · ${view.name} · coffee ${c.alive}/${c.count}` +
+        `${c.ms ? ` ${c.ms.toFixed(1)} ms` : ""} · ${HINT}`;
       if (!table.hidden && !report) {
         const t = timings(), total = Object.values(t).reduce((s, x) => s + x, 0);
         table.textContent = engine.enableGPUTimingMeasurements
@@ -117,7 +123,7 @@ async function main() {
 
   // ?profile: every preset in turn, the budget table on screen (and in __game.profiled)
   const profiled = url.has("profile") ? profile(engine, apply, timings) : null;
-  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, denoiser, view, timings, profiled, apply }; // for the console and tools/
+  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, denoiser, fluid, view, timings, profiled, apply }; // for the console and tools/
   if (profiled) {
     table.hidden = false;
     report = await profiled;

@@ -27,7 +27,7 @@ export async function loadOffice(scene) {
     const extras = node.metadata?.gltf?.extras;
     if (!extras?.dynamic) continue;
     const mesh = makeDynamic(node, extras, scene);
-    bodies.push({ name: node.name, mesh, body: mesh.physicsBody, pos: mesh.position.clone(), rot: mesh.rotationQuaternion.clone() });
+    bodies.push({ name: node.name, mesh, body: mesh.physicsBody, extras, pos: mesh.position.clone(), rot: mesh.rotationQuaternion.clone() });
     loose.add(mesh);
   }
   for (const m of c.meshes) {
