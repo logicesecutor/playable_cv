@@ -233,6 +233,15 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   later (the mug gets lighter as it empties, the figure is pushed by the wave, props float).
 - **Check**: an empty mug pushed into standing coffee floats; the figure standing in the wave
   is moved; no explosion when a collider is teleported (R).
+- Done as (asked: the figure gets a capped push, every body in the box is coupled, floating checked
+  in a test pool): the grid and G2P sum the momentum each body takes (fixed-point atomics, momentum
+  stopped by the desk inside a body goes to the body), read back each frame (flushed) and applied in
+  Havok as impulses at the centre of mass; the figure gets a drift of at most 6 u/s², 1.5 u/s. The
+  bodies move within the frame per substep (else a fast mug jumps half a cell into the coffee);
+  each particle remembers whether it is in the mug (it only changes over the rim); linear drag on a
+  body while the coffee pushes it (the impulses come a frame late). F pushes over 0.3 s (17 u/s
+  worth) instead of one blow. `?pool`: a closed box flooded 7 u deep, the empty mug dropped in.
+  Checked on the UHD 620 (low).
 
 ### M12 — Coffee mesh and its BVH
 - Density grid → smoothed → marching cubes on the GPU (vertex/index buffers with indirect
@@ -263,4 +272,5 @@ target (the Pages workflow is removed in M0).
 | GPU LBVH + marching cubes every frame is the hardest part | Its own milestone with a brute-force check; fallback: rebuild the coffee BVH every 2nd frame. |
 | No dev GPU here: the laptop is a UHD 620, the 3070 is elsewhere | Develop against the low preset here; each milestone's high-preset numbers measured on the 3070 when available. |
 | WebGPU only (no WebGL fallback) | Accepted: the ray tracer needs compute; the boot screen says so. |
+| Two-way coupling a frame late at low frame rates (M11) | Linear drag while in coffee, impulses flushed the same frame, F as a 0.3 s push; watch the 3070 at 60 fps, where the delay is 6× shorter. |
 | Fluid scale (coffee in player units is ~300 m³ for a full mug) | M10: 0.4–0.8 u cells in a box around the mug (the mug is 3.6 u in radius). At 0.8 u the coffee bands into layers and stands ~25 % low at rest: fine for a debug view, to watch when M12 meshes it. |

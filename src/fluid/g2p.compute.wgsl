@@ -1,8 +1,9 @@
 // MPM 5/5: each particle's velocity and C from its nodes, then it moves. Thin walls are enforced on
 // the particle too (the grid alone leaks through the mug's 0.36 u wall at 0.4–0.8 u cells): a
-// particle in the cup's hollow stays inside the wall and above the bottom until it goes over the
-// rim, one outside stays out of the cup, and none sinks into the desk top or the player. Particles
-// that leave the box through its sides or bottom are removed and counted (mpm.wgsl is prepended).
+// particle in the cup stays inside the wall and above the floor until it goes over the rim, one
+// outside stays out of the cup's wall and floor, and none sinks into the desk top or the player (the momentum
+// those walls take goes to the mug and the player). Particles that leave the box through its sides or
+// bottom are removed and counted (mpm.wgsl and forces.wgsl are prepended).
 
 @group(0) @binding(2) var<storage, read> grid : array<vec4f>; // velocity (cells/s), mass
 @group(0) @binding(3) var<storage, read_write> particles : array<Particle>;
@@ -15,6 +16,7 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
   if (id.x >= u32(params.size.w)) { return; }
   var p = particles[id.x];
   if (p.alive == 0.0) { return; }
+  setBack();
   let k = kernel(p.x);
   var v = vec3f(0.0);
   var B = mat3x3f(vec3f(0.0), vec3f(0.0), vec3f(0.0));
@@ -38,24 +40,37 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
   let inner = cup.x - cup.z;
   let l0 = local(0u, before);
   let l = local(0u, x);
-  if (length(l0.xz) < inner && l0.y < cup.y && l0.y > cup.w - 0.5) {
-    if (l.y < cup.y) { // still below the rim: inside the wall, above the bottom
-      let r = length(l.xz);
-      let k = select(1.0, (inner - GAP) / r, r > inner - GAP);
-      let c = vec3f(l.x * k, max(l.y, cup.w + GAP), l.z * k);
-      let moved = toW * (c - l);
-      if (any(moved != vec3f(0.0))) {
-        x += moved;
-        v = slip(v, bodyVelocity(0u, x), normalize(moved));
-      }
+  // which side of the mug a particle is on is kept in `alive` (2 in the cup, 1 outside): it only
+  // changes over the rim, never through the wall or the floor
+  if (p.alive == 1.0 && l0.y >= cup.y && l.y < cup.y && length(l.xz) < inner) { p.alive = 2.0; } // fell in
+  if (p.alive == 2.0 && l.y >= cup.y) { p.alive = 1.0; } // went over the rim
+  if (p.alive == 2.0) { // inside the wall, above the floor
+    let r = length(l.xz);
+    let k = select(1.0, (inner - GAP) / r, r > inner - GAP);
+    let c = vec3f(l.x * k, max(l.y, cup.w + GAP), l.z * k);
+    let moved = toW * (c - l);
+    if (any(moved != vec3f(0.0))) {
+      x += moved;
+      let free = v;
+      v = slip(v, bodyVelocity(0u, x), normalize(moved));
+      push(0u, x, (free - v) * MASS);
     }
-  } else {
-    let d = cupSdf(l, cup);
-    if (d < GAP) {
-      let n = bodyNormal(0u, l);
-      x += n * (GAP - d);
-      v = slip(v, bodyVelocity(0u, x), n);
+  } else if (cupSdf(l, cup) < GAP) { // out of the wall and the floor the way it came in
+    let r = length(l.xz);
+    var n : vec3f;
+    if (l.y >= cup.y - GAP) { // the rim's top
+      n = toW * vec3f(0.0, 1.0, 0.0);
+      x += n * (cup.y + GAP - l.y);
+    } else if (l0.y < cup.w && length(l0.xz) < cup.x) { // under the floor
+      n = toW * vec3f(0.0, -1.0, 0.0);
+      x += n * (l.y + GAP);
+    } else if (r > 1e-4) { // beside the wall (past its middle the SDF would point into the cup)
+      n = toW * vec3f(l.x / r, 0.0, l.z / r);
+      x += n * (cup.x + GAP - r);
     }
+    let free = v;
+    v = slip(v, bodyVelocity(0u, x), n);
+    push(0u, x, (free - v) * MASS);
   }
 
   // the player's capsule
@@ -64,7 +79,9 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
   if (pd < GAP) {
     let n = bodyNormal(1u, pl);
     x += n * (GAP - pd);
+    let free = v;
     v = slip(v, bodyVelocity(1u, x), n);
+    push(1u, x, (free - v) * MASS);
   }
 
   // the desk top
@@ -76,7 +93,9 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
   }
 
   let s = params.size.xyz;
-  if (any(g.xz < vec2f(2.0)) || any(g.xz > s.xz - 3.0) || g.y < 2.0) {
+  if (params.walls.x != 0.0) {
+    g = clamp(g, vec3f(2.0), s - 3.0);
+  } else if (any(g.xz < vec2f(2.0)) || any(g.xz > s.xz - 3.0) || g.y < 2.0) {
     p.alive = 0.0;
     atomicAdd(&removed[0], 1u);
   }

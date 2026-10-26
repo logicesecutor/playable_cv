@@ -72,7 +72,8 @@ async function main() {
   const [elevation, azimuth, irradiance] = (url.get("sun") ?? "35,20,30").split(",").map(Number);
   const tracer = createTracer(scene, player.camera, gbuffer, rt, reference, { elevation, azimuth, irradiance });
   const denoiser = reference ? null : createDenoiser(scene, player.camera, gbuffer, tracer);
-  const fluid = createFluid(scene, player.camera, gbuffer, rt, office, player);
+  // ?pool: the M11 float check, the mug empty in a closed box flooded around it
+  const fluid = createFluid(scene, player.camera, gbuffer, rt, office, player, { pool: url.has("pool") });
   const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer, fluid);
   // GPU ms per pass, 1 s means
   const timings = () => passTimes(engine, gbuffer, [...tracer.passes, ...(denoiser?.passes ?? []), ...fluid.passes]);

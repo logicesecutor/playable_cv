@@ -27,7 +27,7 @@ own profile so the flags apply while your normal Chrome is open). Or set the sam
 `chrome://flags`: *Unsafe WebGPU Support*, *Vulkan*, and *Choose ANGLE graphics backend* = Vulkan.
 
 URL options: `?q=high|medium|low|auto` (quality preset; by default probed on the first visit),
-`?profile` (GPU ms per pass for every preset), `?denoise=0` (converging reference), `?sun=`,
+`?profile` (GPU ms per pass for every preset), `?pool` (the empty mug dropped into a flooded box: the coffee floats it), `?denoise=0` (converging reference), `?sun=`,
 `?tm=`, `?ev=`. Keys: T per-pass GPU timings, P the coffee's particles (coloured by speed), 0–9 debug views.
 
 Stack: Babylon.js 9 (`@babylonjs/core`), Havok (`@babylonjs/havok`), Vite 5.

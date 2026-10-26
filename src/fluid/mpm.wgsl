@@ -11,11 +11,12 @@ struct Params {
   step : vec4f,   // dt (s), gravity (cells/s², down), stiffness, dynamic viscosity
   fluid : vec4f,  // rest density, bodies, desk top (grid y), 0
   desk : vec4f,   // desk top rectangle in grid x, z: min x, min z, max x, max z
+  walls : vec4f,  // x: 1 = the box's sides and bottom are walls (?pool), 0 = the coffee leaves through them, y: substeps this frame
 }
 
 struct Particle {
   x : vec3f,     // grid units
-  alive : f32,   // 0: left the box
+  alive : f32,   // 0: left the box, 1: outside the mug, 2: in it (g2p)
   v : vec3f,     // cells/s
   density : f32,
   C : mat3x3f,   // APIC affine velocity
@@ -31,6 +32,7 @@ struct Body {
 }
 
 const FIX = 1e4; // fixed point of the grid sums
+const IMPULSE_FIX = 100.0; // fixed point of the impulses on the bodies (particle mass · u/s)
 const MASS = 1.0; // per particle, so the rest density = particles per cell
 
 fn fix(x : f32) -> i32 { return i32(round(clamp(x, -2e5, 2e5) * FIX)); }
@@ -80,8 +82,17 @@ fn bodySdf(i : u32, p : vec3f) -> f32 {
   return length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
-// world point → (local point, distance)
-fn local(i : u32, p : vec3f) -> vec3f { return (bodies[i].toLocal * vec4f(p, 1.0)).xyz; }
+// The bodies are uploaded at their pose after this frame's physics, the substeps cover the frame
+// before it: a substep `back` seconds before the frame's end sees each body moved back along its
+// velocity (first order), not jumping a frame's motion at once (grid and G2P set it, forces.wgsl).
+var<private> back = 0.0;
+
+// world point → the body's frame at this substep
+fn local(i : u32, p : vec3f) -> vec3f {
+  let b = bodies[i];
+  let u = p - b.centre.xyz + b.v.xyz * back;
+  return (b.toLocal * vec4f(b.centre.xyz + u + cross(b.w.xyz * back, u), 1.0)).xyz;
+}
 
 // outward normal in world space, from central differences in the body's frame
 fn bodyNormal(i : u32, l : vec3f) -> vec3f {
@@ -93,7 +104,7 @@ fn bodyNormal(i : u32, l : vec3f) -> vec3f {
 }
 
 fn bodyVelocity(i : u32, p : vec3f) -> vec3f {
-  return bodies[i].v.xyz + cross(bodies[i].w.xyz, p - bodies[i].centre.xyz);
+  return bodies[i].v.xyz + cross(bodies[i].w.xyz, p - bodies[i].centre.xyz + bodies[i].v.xyz * back);
 }
 
 // v against a surface moving at vb with outward normal n: no flow into it, free along it

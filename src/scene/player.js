@@ -14,6 +14,9 @@ const JUMP = 0.9; // u
 const G = 9.81;
 const SHOULDER = new Vector3(0.6, 1.6, 0); // camera pivot from the feet: right, up
 const LOOP_CLIPS = ["Idle", "Walk", "Run", "Jump", "Crouch", "CrouchWalk"];
+// the coffee's push (M11): a drift on top of walking, at most this much u/s² and u/s, so the figure
+// can still walk out of a wave; it fades over ~0.5 s once the push stops
+const PUSH = { accel: 6, speed: 1.5, fade: 2 };
 
 /**
  * player_corporate on a Havok character controller, third-person over-the-shoulder camera with
@@ -69,6 +72,7 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
   const down = Vector3.Down();
   const gravity = new Vector3(0, -G, 0);
   let facing = yaw + Math.PI;
+  const drift = new Vector3(), applied = new Vector3(); // applied: the drift added last sub-step
 
   scene.onAfterPhysicsObservable.add(() => {
     const dt = physics.getTimeStep(); // this physics sub-step (main.js)
@@ -83,7 +87,8 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
 
     const support = ctrl.checkSupport(dt, down);
     const grounded = support.supportedState === CharacterSupportedState.SUPPORTED;
-    const v = ctrl.getVelocity();
+    const v = ctrl.getVelocity().subtractInPlace(applied); // the drift is added on top each sub-step, not kept
+
     let out;
     if (grounded) {
       out = ctrl.calculateMovement(dt, fwd, support.averageSurfaceNormal, v, support.averageSurfaceVelocity, input.scale(speed), up);
@@ -92,6 +97,9 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
       out = ctrl.calculateMovement(dt, fwd, up, v, Vector3.ZeroReadOnly, input.scale(speed), up);
       out.y = v.y - G * dt; // integrate() only uses gravity for contacts
     }
+    drift.scaleInPlace(Math.exp(-PUSH.fade * dt));
+    out.addInPlace(drift);
+    applied.copyFrom(drift);
     ctrl.setVelocity(out);
     ctrl.integrate(dt, support, gravity);
 
@@ -129,6 +137,14 @@ export async function createPlayer(scene, canvas, spawn, lookAt) {
     },
     get velocity() {
       return ctrl.getVelocity();
+    },
+    /** The coffee's impulse (kg·u/s) over `seconds`: a horizontal drift, capped (PUSH). */
+    push(impulse, seconds) {
+      const dv = new Vector3(impulse.x, 0, impulse.z).scaleInPlace(1 / ctrl.characterMass);
+      const most = PUSH.accel * seconds;
+      if (dv.length() > most) dv.normalize().scaleInPlace(most);
+      drift.addInPlace(dv);
+      if (drift.length() > PUSH.speed) drift.normalize().scaleInPlace(PUSH.speed);
     },
   };
 }

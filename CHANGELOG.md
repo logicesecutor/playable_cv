@@ -3,6 +3,50 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-26 — M11: two-way coupling
+
+- **"Cannot see anything"**: checked in a visible Chrome (`HEADED=1 node tools/shot.mjs`, the
+  `npm run chrome` flags): the game runs (19 fps, low). The coffee is inside an opaque mug and shows
+  only with P (the M10 choice); the real surface is M12. In the first visible run the mug was found
+  knocked over, most likely by input reaching the window; not reproduced in two more runs.
+- **Decisions (asked)**: the coffee pushes the figure with a capped drift; every body in the box is
+  coupled; floating checked both as asked, by one test pool (no light prop fits the mug: the light
+  ones are pens 13 u long, the mug is 6.5 u wide, and the pool turned out small enough for this
+  laptop).
+- Grid pass: what a body's surface takes from a node (its slip) goes to that body as an impulse and
+  an angular impulse about its centre of mass (`forces.wgsl`, i32 atomics in particle mass · u/s ×
+  100); what the desk or the clutter stops at a node inside a body goes to that body too (a node
+  under the mug's floor has the floor's normal pointing down, so the desk carried the weight). The
+  bodies now come before the desk. G2P adds what its particle-level walls take (mug, player).
+- `mpm.js`: the sums are read back every frame (flushed at the frame's end) and applied in Havok,
+  ×1000 (dx/2)³ kg; the player gets `push()` (`player.js`: a drift on top of walking, ≤ 6 u/s²,
+  ≤ 1.5 u/s, fading in ~0.5 s; the drift is not carried from substep to substep). R drops impulses
+  still in flight. Linear drag 2/s on a body while the coffee pushes it (the impulses are a frame
+  late; undamped, the floating mug bobbed higher each time and flipped).
+- The bodies move within the frame: each substep sees them moved back along their velocity from
+  their end-of-frame pose (a substep clock counted by the clear pass); a fast mug used to jump half a
+  cell into the coffee at 10 fps.
+- Each particle remembers whether it is in the mug (`alive` 2 in, 1 out); it only changes over the
+  rim. The old guess from the last position let coffee in through the floor and the wall under the
+  pool's pressure, and let the full mug's coffee out through the floor.
+- `mug.js`: F pushes for 0.3 s (17 u/s worth, was one 7 u/s blow): a blow spun the mug at ~6 rad/s
+  in one step, before its coffee (a frame behind) could hold it back, and threw the coffee out at
+  30 u/s. A full mug now goes over in ~3 s and empties as it does.
+- `?pool`: a 16 × 14 × 16 u closed box flooded 7 u deep, the empty mug dropped in from just above (a
+  mug standing on the floor has no coffee under it to lift it).
+- **Checked** (UHD 620, low, headless + a visible window):
+  - Full mug at rest: the mug carries 99 % of the coffee's weight (196 t); 65 s: 3060/3060 in it.
+  - F: tilts 47° at 1.2 s, on its side at 3 s, 24 particles left in it at 3.8 s.
+  - R while it pours: back upright and full, still to 0.01 u.
+  - The figure 21 u away with the mug tipped toward it: pushed ~1 u at ≤ 1.1 u/s, then still.
+  - `?pool`: the mug floats for 40 s, its base 1.5–2.0 u over the desk, draft ~5.7 u (Archimedes:
+    5.9), dry inside. In the visible window it hangs over the desk with its shadow under it.
+  - MPM ms unchanged (low ≈ 30). Medium and high run, the full mug still at rest.
+- **Known issues**: the coupling is explicit and a frame late; the drag hides it at 10 fps, the 3070
+  at 60 fps is unmeasured. The figure is not lifted by the coffee (horizontal drift only). Props in
+  the spill were not checked one by one.
+- **Next**: the 3070 table with `?profile`; M12 coffee mesh and its BVH.
+
 ## 2026-10-26 — M10: coffee simulation (MLS-MPM)
 
 - **Decisions (asked)**: the grid covers the desk around the mug, 0.4 u cells on high (0.5 medium,

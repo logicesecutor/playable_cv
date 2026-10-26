@@ -1,5 +1,6 @@
 // Load a page in headless Chrome with WebGPU, wait, print the HUD text and save a screenshot.
 //   node tools/shot.mjs [url] [out.png] [waitMs] [js]
+// HEADED=1 opens a visible window instead (what `npm run chrome` shows on this desktop).
 // `js` (optional) is evaluated after the wait (promises awaited) and its result printed (or written
 // as JSON to the file in $EVAL_OUT), before the screenshot. Page errors are printed too. Chrome is driven over the DevTools protocol
 // (Node's built-in WebSocket, no dependency).
@@ -12,7 +13,7 @@ const [url = "http://localhost:5173/", out = "shot.png", wait = "5000", js] = pr
 const port = 9333;
 const profile = mkdtempSync(join(tmpdir(), "shot-")); // deleted at the end: Chrome profiles are ~200 MB
 const chrome = spawn("google-chrome", [
-  "--headless=new", "--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=vulkan",
+  ...(process.env.HEADED ? [] : ["--headless=new"]), "--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=vulkan",
   "--ignore-gpu-blocklist", "--no-first-run", `--remote-debugging-port=${port}`,
   `--user-data-dir=${profile}`, "--window-size=1280,720", "about:blank",
 ], { stdio: "ignore" });
