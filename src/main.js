@@ -26,6 +26,10 @@ async function main() {
   }
   const url = new URLSearchParams(location.search);
   const timing = url.has("timing"); // GPU time per compute pass (timestamp queries), see __game.timings()
+  // ?q=low|high; default low on Intel integrated GPUs: half resolution, the same lighting (~9 fps on a UHD 620)
+  // shortcut: Intel minus Arc (architecture *-hpg) is "integrated"; M9 replaces this with a measured preset
+  const gpu = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
+  const quality = url.get("q") ?? (gpu?.vendor === "intel" && !/hpg/.test(gpu.architecture) ? "low" : "high");
   const engine = new WebGPUEngine(canvas, {
     antialias: false,
     powerPreference: "high-performance",
@@ -34,6 +38,7 @@ async function main() {
   });
   await engine.initAsync();
   engine.enableGPUTimingMeasurements = timing;
+  if (quality === "low") engine.setHardwareScalingLevel(2); // every target at half the canvas, upscaled by the browser
 
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true; // glTF's frame: no flip on load, the ray tracer works in it too
@@ -77,7 +82,7 @@ async function main() {
     const now = performance.now();
     if (now >= hudAt) {
       hudAt = now + 500;
-      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${view.name} · ${HINT}`;
+      hud.textContent = `${engine.getFps().toFixed(0)} fps · ${quality} · ${view.name} · ${HINT}`;
     }
   });
   addEventListener("resize", () => {

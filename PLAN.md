@@ -200,6 +200,8 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   the alias table (window panes first); `textures.js` the albedo and ORM arrays.
 
 ### M9 — Quality presets and profiling
+- Started early (2026-10-26, asked): `?q=low|high`, low = half resolution, picked automatically on
+  Intel integrated GPUs (adapter info) so the dev laptop previews at ~9 fps.
 - GPU timestamp per pass in the HUD, the low preset, auto-detection, `?q=` override.
 - **Check**: budget table above measured on the 3070 and on the UHD 620, written to CHANGELOG.
 

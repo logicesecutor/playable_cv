@@ -3,6 +3,18 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-26 — Dev preview on integrated GPUs (part of M9)
+
+- **Decisions (asked)**: on this laptop render at **half resolution with the full lighting** (~9 fps
+  instead of 2.5), chosen **automatically on weak GPUs**, `?q=low|high` to override.
+- `src/main.js`: the WebGPU adapter's info decides: Intel except Arc (architecture `*-hpg`) → `low`
+  = `engine.setHardwareScalingLevel(2)` (every target at half the canvas, the browser upscales).
+  The HUD shows the quality.
+- **Checked** (UHD 620, 1280×577 window): auto picks `low` (640×288, 8–9 fps: lighting 101 ms,
+  denoiser 11 ms); `?q=high` gives 1280×577 at 2.5 fps. Measured for the choice: third resolution
+  15 fps, half resolution with direct light only 32 fps.
+- Known: the GPU test is a vendor heuristic; M9 replaces it with measured presets.
+
 ## 2026-10-25 — M8: indirect light and reflections
 
 - **Decisions (asked)**: RIS with 16 candidates for every light sample (replaces the all-lights
