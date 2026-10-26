@@ -24,7 +24,8 @@ const SPAWN = new Vector3(2, 67.6, -6); // on the desk between the keyboard and 
 async function main() {
   // WebGPU only: the ray tracer runs in compute shaders
   if (!(await WebGPUEngine.IsSupportedAsync)) {
-    throw new Error("This needs WebGPU: a recent Chrome or Edge, or Safari 26+, on a machine with a GPU.");
+    throw new Error("This needs WebGPU: a recent Chrome or Edge, or Safari 26+, on a machine with a GPU." +
+      " On Linux Chrome needs flags: see README (npm run chrome).");
   }
   const url = new URLSearchParams(location.search);
   const engine = new WebGPUEngine(canvas, {
@@ -34,6 +35,9 @@ async function main() {
     enableAllFeatures: true, // timestamp queries, for the T table and the probe-free profile
   });
   await engine.initAsync();
+  if (engine.getInfo().renderer === "swiftshader") {
+    throw new Error("WebGPU is running on the CPU (SwiftShader): far too slow for the ray tracer. On Linux start Chrome with Vulkan: see README (npm run chrome).");
+  }
   // on from the start where supported: Babylon only gives passes created while it is on a GPU timer
   engine.enableGPUTimingMeasurements = !!engine.getCaps().timerQuery;
 

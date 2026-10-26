@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "chrome": "google-chrome --user-data-dir=$HOME/.cache/rt-office-chrome --enable-unsafe-webgpu --enable-features=Vulkan --use-angle=vulkan http://localhost:5173/"
   },
   "dependencies": {
     "@babylonjs/core": "^9.32.0",

@@ -3,6 +3,20 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-26 — Running on the dev laptop's own Chrome
+
+- The user's Chrome showed nothing on this laptop: on Linux Chrome gives WebGPU no adapter by
+  default (the headless checks always passed flags). Measured per flag set: none → no adapter;
+  `--enable-unsafe-webgpu` → SwiftShader (CPU, the game crawls); + `--enable-features=Vulkan
+  --use-angle=vulkan` → the Intel GPU. `npm run chrome` opens the game in Chrome with those flags in
+  its own profile (`~/.cache/rt-office-chrome`, so they apply next to a running Chrome); README
+  explains it and the `chrome://flags` equivalent, and lists the URL options and keys.
+- `main.js`: the no-WebGPU message points to it, and a SwiftShader adapter now stops with a message
+  instead of crawling.
+- **Checked**: default Chrome → the message; SwiftShader → its message; a visible (non-headless)
+  Chrome window with the flags on the Wayland desktop → the game at 14 fps (low). Chrome logs that
+  Wayland is not compatible with Vulkan; the page still renders.
+
 ## 2026-10-26 — M9: quality presets and profiling
 
 - **Decisions (asked)**: three presets, high (full resolution, full lighting) / medium (half
