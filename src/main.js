@@ -13,10 +13,12 @@ import { createRTScene } from "./rt/scene.js";
 import { createView } from "./rt/view.js";
 import { createTracer } from "./rt/tracer.js";
 import { createDenoiser } from "./rt/denoise.js";
+import { PRESETS, chosenQuality, probe, profile, timings as passTimes } from "./quality.js";
 
 const canvas = document.getElementById("view");
 const hud = document.getElementById("hud");
-const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset · 0–9 views";
+const table = document.getElementById("timings");
+const HINT = "click to play · WASD move · Shift run · Space jump · C crouch · F shove the mug · R reset · 0–9 views · T timings";
 const SPAWN = new Vector3(2, 67.6, -6); // on the desk between the keyboard and the monitor (desk top y 66.6)
 
 async function main() {
@@ -25,20 +27,15 @@ async function main() {
     throw new Error("This needs WebGPU: a recent Chrome or Edge, or Safari 26+, on a machine with a GPU.");
   }
   const url = new URLSearchParams(location.search);
-  const timing = url.has("timing"); // GPU time per compute pass (timestamp queries), see __game.timings()
-  // ?q=low|high; default low on Intel integrated GPUs: half resolution, the same lighting (~9 fps on a UHD 620)
-  // shortcut: Intel minus Arc (architecture *-hpg) is "integrated"; M9 replaces this with a measured preset
-  const gpu = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
-  const quality = url.get("q") ?? (gpu?.vendor === "intel" && !/hpg/.test(gpu.architecture) ? "low" : "high");
   const engine = new WebGPUEngine(canvas, {
     antialias: false,
     powerPreference: "high-performance",
     setMaximumLimits: true, // the G-buffer needs 36 colour bytes per pixel; WebGPU grants 32 unless asked
-    enableAllFeatures: timing,
+    enableAllFeatures: true, // timestamp queries, for the T table and the probe-free profile
   });
   await engine.initAsync();
-  engine.enableGPUTimingMeasurements = timing;
-  if (quality === "low") engine.setHardwareScalingLevel(2); // every target at half the canvas, upscaled by the browser
+  // on from the start where supported: Babylon only gives passes created while it is on a GPU timer
+  engine.enableGPUTimingMeasurements = !!engine.getCaps().timerQuery;
 
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true; // glTF's frame: no flip on load, the ray tracer works in it too
@@ -71,27 +68,63 @@ async function main() {
   const tracer = createTracer(scene, player.camera, gbuffer, rt, reference, { elevation, azimuth, irradiance });
   const denoiser = reference ? null : createDenoiser(scene, player.camera, gbuffer, tracer);
   const view = createView(scene, player.camera, gbuffer, rt, denoiser ?? tracer);
-  // ms per compute pass, averaged over the last second (with ?timing)
-  const timings = () => Object.fromEntries([...tracer.passes, ...(denoiser?.passes ?? [])]
-    .map((cs) => [cs.name, +(cs.gpuTimeInFrame?.counter.lastSecAverage / 1e6).toFixed(2)]));
-  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, denoiser, view, timings }; // for the console and tools/shot.mjs
+  // GPU ms per pass, 1 s means
+  const timings = () => passTimes(engine, gbuffer, [...tracer.passes, ...(denoiser?.passes ?? [])]);
 
+  const resize = () => {
+    engine.resize();
+    gbuffer.resize();
+    tracer.resize();
+    denoiser?.resize();
+    view.resize();
+  };
+  addEventListener("resize", resize);
+  let quality = "probing";
+  const apply = (name) => {
+    const p = PRESETS[name];
+    quality = name;
+    engine.setHardwareScalingLevel(p.scale);
+    resize();
+    tracer.bounces = p.bounces;
+    if (denoiser) denoiser.steps = p.atrous;
+  };
+
+  // ?timing: the table shown from the start; T toggles it
+  table.hidden = !url.has("timing");
+  addEventListener("keydown", (e) => e.code === "KeyT" && (table.hidden = !table.hidden));
   let hudAt = 0;
+  let report = null; // the ?profile result, kept on screen
   engine.runRenderLoop(() => {
     scene.render();
     const now = performance.now();
     if (now >= hudAt) {
       hudAt = now + 500;
       hud.textContent = `${engine.getFps().toFixed(0)} fps · ${quality} · ${view.name} · ${HINT}`;
+      if (!table.hidden && !report) {
+        const t = timings(), total = Object.values(t).reduce((s, x) => s + x, 0);
+        table.textContent = engine.enableGPUTimingMeasurements
+          ? `GPU ms, 1 s mean · ${engine.getRenderWidth()}×${engine.getRenderHeight()}\n` +
+            Object.entries(t).map(([k, v]) => `${k.padEnd(10)} ${v.toFixed(2).padStart(7)}`).join("\n") +
+            `\n${"total".padEnd(10)} ${total.toFixed(2).padStart(7)}  (60 fps: 16.67)`
+          : "no GPU timestamps on this browser/GPU";
+      }
     }
   });
-  addEventListener("resize", () => {
-    engine.resize();
-    gbuffer.resize();
-    tracer.resize();
-    denoiser?.resize();
-    view.resize();
-  });
+
+  // ?profile: every preset in turn, the budget table on screen (and in __game.profiled)
+  const profiled = url.has("profile") ? profile(engine, apply, timings) : null;
+  window.__game = { scene, office, player, mug, gbuffer, rt, tracer, denoiser, view, timings, profiled, apply }; // for the console and tools/
+  if (profiled) {
+    table.hidden = false;
+    report = await profiled;
+    console.log(report);
+    table.textContent = `${report}\n\n(select and copy)`;
+    table.style.pointerEvents = "auto";
+    return;
+  }
+  const chosen = chosenQuality(url);
+  if (chosen) apply(chosen);
+  else apply(await probe(scene, apply));
 }
 
 main().catch((e) => {

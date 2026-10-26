@@ -43,6 +43,7 @@ export function createTracer(scene, camera, gbuffer, rt, reference, sun) {
   params.addUniform("jitter", 4);
   params.addUniform("sun", 4);
   params.addUniform("sunColor", 4);
+  params.addUniform("options", 4);
   params.create();
   cs.setUniformBuffer("params", params);
   rt.bind(cs, ["nodes", "tris", "triMaterial", "instances", "tlas", "lights", "attribs", "materials"]);
@@ -73,6 +74,7 @@ export function createTracer(scene, camera, gbuffer, rt, reference, sun) {
     reset = true;
   };
   let reset = true;
+  let bounces = true;
   targets();
 
   const viewProjection = new Matrix();
@@ -92,6 +94,7 @@ export function createTracer(scene, camera, gbuffer, rt, reference, sun) {
     params.updateFloat4("jitter", gbuffer.jitter.x, gbuffer.jitter.y, reference ? 1 : 0, pixelAngle);
     params.updateFloat4("sun", ...toSun, Math.cos(sunRadius));
     params.updateFloat4("sunColor", ...sunColor, rt.windows);
+    params.updateFloat4("options", bounces ? 1 : 0, 0, 0, 0);
     params.update();
     GBUFFER.forEach((name, i) => cs.setTexture(name, mrt.textures[i], false)); // textures[5] is the depth buffer
     if (cs.dispatch(Math.ceil(mrt.getRenderWidth() / 8), Math.ceil(mrt.getRenderHeight() / 8))) reset = false;
@@ -106,6 +109,14 @@ export function createTracer(scene, camera, gbuffer, rt, reference, sun) {
     },
     get specular() {
       return specular;
+    },
+    /** Trace the diffuse and glossy bounces (off: direct light only, the low preset). */
+    get bounces() {
+      return bounces;
+    },
+    set bounces(on) {
+      reset ||= on !== bounces;
+      bounces = on;
     },
     /** The sun as traced: direction towards it, irradiance (rgb) facing it, angular radius (rad). */
     sun: { direction: toSun, irradiance: sunColor, radius: sunRadius },

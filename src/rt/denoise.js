@@ -66,6 +66,7 @@ export function createDenoiser(scene, camera, gbuffer, tracer) {
     reset = true;
   };
   let reset = true;
+  let steps = STEPS.length; // à-trous passes run (the low preset runs 2)
   targets();
 
   const inverse = new Matrix();
@@ -104,9 +105,10 @@ export function createDenoiser(scene, camera, gbuffer, tracer) {
     });
     ok &&= temporalPass.cs.dispatch(...groups);
 
-    // history → a → b → a → b → a
+    // history → a → b → a → b → a, the first `steps` of them
     const io = [[[t.diffuse[now], t.specular[now]], t.a], [t.a, t.b], [t.b, t.a], [t.a, t.b], [t.b, t.a]];
-    atrousPasses.forEach((p, i) => {
+    const [filteredDiffuse, filteredSpecular] = io[steps - 1][1];
+    atrousPasses.slice(0, steps).forEach((p, i) => {
       update(p, STEPS[i]);
       const [[di, si], [dout, sout]] = io[i];
       textures(p.cs, { diffuseIn: di, specularIn: si, geometry: t.geometry[now], diffuseOut: dout, specularOut: sout });
@@ -115,7 +117,7 @@ export function createDenoiser(scene, camera, gbuffer, tracer) {
 
     update(resolvePass);
     textures(resolvePass.cs, {
-      diffuseTex: t.a[0], specularTex: t.a[1], albedoTex: albedo, emissionTex: emission, depthTex: depth, motionTex: motion,
+      diffuseTex: filteredDiffuse, specularTex: filteredSpecular, albedoTex: albedo, emissionTex: emission, depthTex: depth, motionTex: motion,
       history: t.image[last], out: t.image[now],
     });
     ok &&= resolvePass.cs.dispatch(...groups);
@@ -131,7 +133,17 @@ export function createDenoiser(scene, camera, gbuffer, tracer) {
     get geometry() {
       return t.geometry[frame & 1];
     },
-    passes: [temporalPass, ...atrousPasses, resolvePass].map((p) => p.cs),
+    /** The compute passes that run (for timings). */
+    get passes() {
+      return [temporalPass, ...atrousPasses.slice(0, steps), resolvePass].map((p) => p.cs);
+    },
+    /** How many à-trous passes run, 1–5 (steps 1, 2, 4, …). */
+    get steps() {
+      return steps;
+    },
+    set steps(n) {
+      steps = n;
+    },
     resize: targets,
   };
 }

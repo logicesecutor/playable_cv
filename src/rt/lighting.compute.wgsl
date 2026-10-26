@@ -16,6 +16,7 @@ struct Params {
   jitter : vec4f, // the raster's sub-pixel offset (pixels), reference mode (1), pixel angle (rad)
   sun : vec4f, // towards the sun, cosine of its angular radius
   sunColor : vec4f, // irradiance on a plane facing the sun, number of window panes
+  options : vec4f, // bounces on (1)
 }
 
 struct Light {
@@ -248,20 +249,22 @@ fn main(@builtin(global_invocation_id) id : vec3u) {
     diffuse = light.diffuse;
     specular = light.specular;
 
-    // diffuse bounce: f cos / pdf = (1 − F) with the albedo left out; a wide cone (spread ~1 rad)
-    let ld = sampleCosine(n, vec2f(random(), random()));
-    let hd = trace(o, ld, MISS, false);
-    if (hd.t < MISS) {
-      let q = shade(hd, o, ld, t * pixelAngle + hd.t * (pixelAngle + 1.0));
-      diffuse += capped(brdf(n, v, ld, albedo, roughness, metal).diffuse * PI * bounce(q, ld, t + hd.t));
-    }
-    // glossy bounce: the cone widens by the lobe's alpha
-    let g = sampleGlossy(n, v, albedo, roughness, metal, vec2f(random(), random()));
-    if (any(g.weight > vec3f(0.0))) {
-      let hg = trace(o, g.l, MISS, false);
-      if (hg.t < MISS) {
-        let q = shade(hg, o, g.l, t * pixelAngle + hg.t * (pixelAngle + roughness * roughness));
-        specular += capped(g.weight * bounce(q, g.l, t + hg.t));
+    if (params.options.x != 0.0) { // off in the low preset: direct light only
+      // diffuse bounce: f cos / pdf = (1 − F) with the albedo left out; a wide cone (spread ~1 rad)
+      let ld = sampleCosine(n, vec2f(random(), random()));
+      let hd = trace(o, ld, MISS, false);
+      if (hd.t < MISS) {
+        let q = shade(hd, o, ld, t * pixelAngle + hd.t * (pixelAngle + 1.0));
+        diffuse += capped(brdf(n, v, ld, albedo, roughness, metal).diffuse * PI * bounce(q, ld, t + hd.t));
+      }
+      // glossy bounce: the cone widens by the lobe's alpha
+      let g = sampleGlossy(n, v, albedo, roughness, metal, vec2f(random(), random()));
+      if (any(g.weight > vec3f(0.0))) {
+        let hg = trace(o, g.l, MISS, false);
+        if (hg.t < MISS) {
+          let q = shade(hg, o, g.l, t * pixelAngle + hg.t * (pixelAngle + roughness * roughness));
+          specular += capped(g.weight * bounce(q, g.l, t + hg.t));
+        }
       }
     }
   }

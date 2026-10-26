@@ -97,9 +97,11 @@ next-event estimation. Radiance is scale-invariant, so the ×90 scale changes no
 | Coffee rays (primary + refraction) | 1.5 | only where the coffee is |
 | Slack | 1.1 | |
 
-**Low preset** (integrated GPUs): RT at 50 % resolution + upscale, direct light only (no GI),
-mirror-only reflections on the smoothest surfaces, 2 à-trous passes, ~30k particles on a coarser
-grid. Picked automatically (adapter info + a 2-second timing probe), overridable with `?q=high|low`.
+**Presets** (M9, asked): **high** = all of the above at full resolution; **medium** = the same at
+half resolution (each axis, upscaled); **low** = half resolution, direct light only (no bounces), 2
+à-trous passes (later: ~30k particles on a coarser grid). Picked by a timing probe on the first
+visit (best first, the first that holds 30 fps), remembered in localStorage; `?q=high|medium|low`
+overrides, `?q=auto` probes again. Measured with `?profile` / `tools/profile.mjs`.
 
 ## Milestones
 
@@ -200,10 +202,11 @@ locally. Questions marked **Ask** are put to you before that milestone starts.
   the alias table (window panes first); `textures.js` the albedo and ORM arrays.
 
 ### M9 — Quality presets and profiling
-- Started early (2026-10-26, asked): `?q=low|high`, low = half resolution, picked automatically on
-  Intel integrated GPUs (adapter info) so the dev laptop previews at ~9 fps.
 - GPU timestamp per pass in the HUD, the low preset, auto-detection, `?q=` override.
 - **Check**: budget table above measured on the 3070 and on the UHD 620, written to CHANGELOG.
+- Done as: `src/quality.js` (presets, probe, timings, profile); T toggles the per-pass GPU table
+  (timestamp queries always on where supported); `?profile` prints the budget table on screen, so
+  the 3070 needs only a browser. UHD 620 measured; **3070 numbers pending** (run `?profile` there).
 
 ### M10 — Coffee simulation (MLS-MPM)
 - WGSL: clear grid, P2G (fixed-point atomics), grid update (gravity, boundaries: desk plane, mug

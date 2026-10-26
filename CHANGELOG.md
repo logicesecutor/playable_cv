@@ -3,6 +3,44 @@
 State of the work on the ray-traced office (plan: [PLAN.md](PLAN.md)). Newest first. Each entry:
 what was done, files, how it was checked, known issues, and what comes next.
 
+## 2026-10-26 — M9: quality presets and profiling
+
+- **Decisions (asked)**: three presets, high (full resolution, full lighting) / medium (half
+  resolution, full lighting) / low (half resolution, direct light only, 2 à-trous passes); chosen by
+  a timing probe on the first visit and remembered; per-pass GPU timings toggled with T; the 3070
+  budget table measured with a profile command.
+- `src/quality.js`: `PRESETS`, `chosenQuality` (`?q=high|medium|low` → that preset, `?q=auto` →
+  probe, else the stored one), `probe` (presets best first, mean frame time over ≥ 2 s and ≥ 5
+  frames after 0.5 s; keeps the first ≤ 33.3 ms, else low; stored in localStorage), `timings`
+  (G-buffer, each compute pass, view: 1 s GPU means), `profile` (every preset for 2 + 8 s, markdown
+  table with the GPU name). Replaces yesterday's Intel heuristic.
+- `main.js`: timestamp queries on whenever the GPU has them (Babylon only times passes created while
+  they are on); `apply(preset)` sets the render scale, resizes everything, `tracer.bounces`,
+  `denoiser.steps`. T shows the per-pass table (also `?timing`). `?profile` runs the presets and
+  leaves the table on screen to copy, in any browser. `tools/profile.mjs` does it headless here.
+- `lighting.compute.wgsl`: `options.x` switches the two bounces (a uniform: presets change at
+  runtime); `denoise.js`: `steps` à-trous passes run, resolve reads the last one's output.
+- **Checked** (UHD 620, headless 1280×577 window), `tools/profile.mjs`:
+
+  | GPU ms | high | medium | low |
+  |---|---:|---:|---:|
+  | gbuffer | 3.13 | 1.00 | 1.00 |
+  | lighting | 394.19 | 100.01 | 21.08 |
+  | temporal | 7.85 | 2.11 | 2.00 |
+  | à-trous 1/2/4/8/16 | 13.3/13.4/12.8/1.6/1.6 | 3.2/3.2/0.5/0.5/0.5 | 3.3/3.1/–/–/– |
+  | resolve | 4.05 | 1.01 | 1.01 |
+  | view | 1.70 | 0.41 | 0.42 |
+  | **total** | **453.6** | **112.4** | **31.9** |
+  | fps | 2.1 | 8.6 | 30.1 |
+  | size | 1280×577 | 640×288 | 640×288 |
+
+  The probe picks low on this laptop (31 fps) and stores it; `chosenQuality` checked with a fake
+  localStorage (override, stored, auto, bogus value, blocked storage); the T table matches.
+- Known: **RTX 3070 numbers still to measure** (open `http://localhost:5173/?profile` there,
+  fullscreen at 1080p, paste the table). Medium is no longer automatic here (it misses 30 fps):
+  `?q=medium` for the full lighting at ~9 fps. The probe costs a few seconds of slow frames on the
+  first visit of a weak GPU; the stored preset is per browser, not per GPU (`?q=auto` re-probes).
+
 ## 2026-10-26 — Dev preview on integrated GPUs (part of M9)
 
 - **Decisions (asked)**: on this laptop render at **half resolution with the full lighting** (~9 fps
