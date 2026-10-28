@@ -1,0 +1,374 @@
+{
+  "package.json": {
+    "mtime": 1793049779.934345,
+    "seen": 1793049821.8087335,
+    "ast_hash": "bd4c0635a69d0fc280f1aa324f6299f3",
+    "semantic_hash": ""
+  },
+  "src/main.js": {
+    "mtime": 1793050603.2693462,
+    "seen": 1793051828.284156,
+    "ast_hash": "a0bfb7d4c531f4b6511bacdb22827030",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1792272874.3707964,
+    "seen": 1792858328.9783397,
+    "ast_hash": "67d88e9d0760c3ba54c75dfd9551c1c5",
+    "semantic_hash": ""
+  },
+  "PLAN.md": {
+    "mtime": 1793051812.7389147,
+    "seen": 1793051828.284197,
+    "ast_hash": "8de17d87d7280ae8ddb6a2825213319f",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1793051812.7391908,
+    "seen": 1793051828.2841983,
+    "ast_hash": "1edf2d09a949960d1549fa6dafcdc047",
+    "semantic_hash": ""
+  },
+  "index.html": {
+    "mtime": 1793048794.955666,
+    "seen": 1793048978.191832,
+    "ast_hash": "e1706b55faaac9f9816331d5745d4e06",
+    "semantic_hash": ""
+  },
+  "tools/shot.mjs": {
+    "mtime": 1792870334.1328592,
+    "seen": 1792871675.3986487,
+    "ast_hash": "16bb46cfd4af99935cea0dd39ebc4026",
+    "semantic_hash": ""
+  },
+  "CHANGELOG.md": {
+    "mtime": 1793051818.2817132,
+    "seen": 1793051828.2841938,
+    "ast_hash": "ca0e7449967ea5f044940d5b70aaf269",
+    "semantic_hash": ""
+  },
+  "tools/glb-info.mjs": {
+    "mtime": 1792861465.7187088,
+    "seen": 1792861707.885363,
+    "ast_hash": "1bc2934225995047645a7aa2585afa49",
+    "semantic_hash": ""
+  },
+  "public/textures/carpet_albedo.jpg": {
+    "mtime": 1792861585.3866858,
+    "seen": 1792861707.8853986,
+    "ast_hash": "85ffdbf2135a3548d7b39b2bc3681254",
+    "semantic_hash": ""
+  },
+  "public/textures/carpet_normal.png": {
+    "mtime": 1792861585.5646873,
+    "seen": 1792861707.8854022,
+    "ast_hash": "ac052649a3487982f591ac04f952a71c",
+    "semantic_hash": ""
+  },
+  "public/textures/carpet_orm.png": {
+    "mtime": 1792861585.6434848,
+    "seen": 1792861707.8854058,
+    "ast_hash": "036fbf3b7035f11f1d01b77548dd5511",
+    "semantic_hash": ""
+  },
+  "public/textures/ceiling_albedo.jpg": {
+    "mtime": 1792861588.5164404,
+    "seen": 1792861707.885409,
+    "ast_hash": "13d5874bbcdd0675d0c27bef65d913db",
+    "semantic_hash": ""
+  },
+  "public/textures/ceiling_normal.png": {
+    "mtime": 1792861588.703286,
+    "seen": 1792861707.8854125,
+    "ast_hash": "68071563232da140ae753f399a778fb9",
+    "semantic_hash": ""
+  },
+  "public/textures/ceiling_orm.png": {
+    "mtime": 1792861588.7805486,
+    "seen": 1792861707.885416,
+    "ast_hash": "036fbf3b7035f11f1d01b77548dd5511",
+    "semantic_hash": ""
+  },
+  "public/textures/ceramic_albedo.jpg": {
+    "mtime": 1792861591.1897333,
+    "seen": 1792861707.8854194,
+    "ast_hash": "c16e7bcbd6f5470d6ffc2df259f0b32e",
+    "semantic_hash": ""
+  },
+  "public/textures/ceramic_normal.png": {
+    "mtime": 1792861591.278734,
+    "seen": 1792861707.8854227,
+    "ast_hash": "8d08a0f28ebda2237ac180c6a2a25684",
+    "semantic_hash": ""
+  },
+  "public/textures/ceramic_orm.png": {
+    "mtime": 1792861591.3607347,
+    "seen": 1792861707.8854258,
+    "ast_hash": "20af4bb25fbaaba0d52808edca81edf6",
+    "semantic_hash": ""
+  },
+  "public/textures/fabric_albedo.jpg": {
+    "mtime": 1792861586.2410474,
+    "seen": 1792861707.8854296,
+    "ast_hash": "d7833ade2b91f8043567ebd0659bc3a8",
+    "semantic_hash": ""
+  },
+  "public/textures/fabric_normal.png": {
+    "mtime": 1792861586.4516945,
+    "seen": 1792861707.8854327,
+    "ast_hash": "f1f7c49e453134dd75ba984466b90221",
+    "semantic_hash": ""
+  },
+  "public/textures/fabric_orm.png": {
+    "mtime": 1792861586.5293546,
+    "seen": 1792861707.8854368,
+    "ast_hash": "036fbf3b7035f11f1d01b77548dd5511",
+    "semantic_hash": ""
+  },
+  "public/textures/laminate_albedo.jpg": {
+    "mtime": 1792861583.3100867,
+    "seen": 1792861707.8854403,
+    "ast_hash": "cf875725813a53f6e6eec212f0d1dbca",
+    "semantic_hash": ""
+  },
+  "public/textures/laminate_normal.png": {
+    "mtime": 1792861583.4026697,
+    "seen": 1792861707.8854437,
+    "ast_hash": "177d56897372dc0f506872c7b664b0d7",
+    "semantic_hash": ""
+  },
+  "public/textures/laminate_orm.png": {
+    "mtime": 1792861583.4876704,
+    "seen": 1792861707.8854473,
+    "ast_hash": "96323e89f15fa577e43eed71d05a949c",
+    "semantic_hash": ""
+  },
+  "public/textures/metal_albedo.jpg": {
+    "mtime": 1792861590.2307253,
+    "seen": 1792861707.8854508,
+    "ast_hash": "c92ef1ab3c54c1911ede822067880354",
+    "semantic_hash": ""
+  },
+  "public/textures/metal_normal.png": {
+    "mtime": 1792861590.3196886,
+    "seen": 1792861707.8854542,
+    "ast_hash": "d621eff5e13c512bf77f7505c2b79008",
+    "semantic_hash": ""
+  },
+  "public/textures/metal_orm.png": {
+    "mtime": 1792861590.3999302,
+    "seen": 1792861707.8854578,
+    "ast_hash": "85f40916fdc83ca26e73e0e46fc3ec8b",
+    "semantic_hash": ""
+  },
+  "public/textures/micro_fibres.png": {
+    "mtime": 1792861581.5406544,
+    "seen": 1792861707.885461,
+    "ast_hash": "259073c4f6a2e59fecc44ed2e85d4c91",
+    "semantic_hash": ""
+  },
+  "public/textures/micro_glaze.png": {
+    "mtime": 1792861582.3246608,
+    "seen": 1792861707.8854647,
+    "ast_hash": "ccd3b13dd7f7fe88920233365f26cbdc",
+    "semantic_hash": ""
+  },
+  "public/textures/micro_pores.png": {
+    "mtime": 1792861580.9576497,
+    "seen": 1792861707.8854682,
+    "ast_hash": "3104b5c1cf6bc72350730b30d423130f",
+    "semantic_hash": ""
+  },
+  "public/textures/micro_scratches.png": {
+    "mtime": 1792861580.415433,
+    "seen": 1792861707.8854716,
+    "ast_hash": "f15e4b36b5673026d001e0803ebe5041",
+    "semantic_hash": ""
+  },
+  "public/textures/micro_stipple.png": {
+    "mtime": 1792861581.9795732,
+    "seen": 1792861707.885475,
+    "ast_hash": "a7cc40748d24f715534d767aef12b8e4",
+    "semantic_hash": ""
+  },
+  "public/textures/paint_albedo.jpg": {
+    "mtime": 1792861587.255701,
+    "seen": 1792861707.8854783,
+    "ast_hash": "5cbab16a891051da2d438866e3d10e5a",
+    "semantic_hash": ""
+  },
+  "public/textures/paint_normal.png": {
+    "mtime": 1792861587.4207199,
+    "seen": 1792861707.8854814,
+    "ast_hash": "fb171b26a09eaab5c7cb0f447e81f1eb",
+    "semantic_hash": ""
+  },
+  "public/textures/paint_orm.png": {
+    "mtime": 1792861587.5074382,
+    "seen": 1792861707.8854847,
+    "ast_hash": "cdb762f7f4a4466f7ffc9f57d9cd57d0",
+    "semantic_hash": ""
+  },
+  "public/textures/paper_albedo.jpg": {
+    "mtime": 1792861592.3797429,
+    "seen": 1792861707.885488,
+    "ast_hash": "08ca729297c334dc0b90b2580838fc33",
+    "semantic_hash": ""
+  },
+  "public/textures/paper_normal.png": {
+    "mtime": 1792861592.5417442,
+    "seen": 1792861707.8854914,
+    "ast_hash": "67fb472bdbf084bf6592634d021ae97c",
+    "semantic_hash": ""
+  },
+  "public/textures/paper_orm.png": {
+    "mtime": 1792861592.6558752,
+    "seen": 1792861707.8854947,
+    "ast_hash": "2e183b07771d9ff470c165def912b8e0",
+    "semantic_hash": ""
+  },
+  "public/textures/plastic_albedo.jpg": {
+    "mtime": 1792861589.4104323,
+    "seen": 1792861707.885498,
+    "ast_hash": "c932aba6d4e45074f26225d788f30729",
+    "semantic_hash": ""
+  },
+  "public/textures/plastic_normal.png": {
+    "mtime": 1792861589.56272,
+    "seen": 1792861707.8855014,
+    "ast_hash": "e11c7eb4252c7192ac1af8c079c8ab1e",
+    "semantic_hash": ""
+  },
+  "public/textures/plastic_orm.png": {
+    "mtime": 1792861589.6577208,
+    "seen": 1792861707.8855047,
+    "ast_hash": "42555f3edb375ffb6c3facfa1d3ce05a",
+    "semantic_hash": ""
+  },
+  "public/textures/wood_albedo.jpg": {
+    "mtime": 1792861584.3926384,
+    "seen": 1792861707.8855088,
+    "ast_hash": "602a25d3da5048b97f297d59d65c8e1f",
+    "semantic_hash": ""
+  },
+  "public/textures/wood_normal.png": {
+    "mtime": 1792861584.4816785,
+    "seen": 1792861707.885512,
+    "ast_hash": "21b46d2dec012c80b12a665b42a01983",
+    "semantic_hash": ""
+  },
+  "public/textures/wood_orm.png": {
+    "mtime": 1792861584.5587664,
+    "seen": 1792861707.8855155,
+    "ast_hash": "3b0e829b30121875acdcdf47d246252f",
+    "semantic_hash": ""
+  },
+  "src/scene/mug.js": {
+    "mtime": 1792862953.6035552,
+    "seen": 1792863004.4944139,
+    "ast_hash": "c18b8011488e6420ea0c98d385226d8e",
+    "semantic_hash": ""
+  },
+  "src/scene/office.js": {
+    "mtime": 1793050443.2915237,
+    "seen": 1793051828.2841794,
+    "ast_hash": "d7dd0b9b03c1fbf5931eea786656a85c",
+    "semantic_hash": ""
+  },
+  "src/scene/player.js": {
+    "mtime": 1793050448.8044646,
+    "seen": 1793051828.2841806,
+    "ast_hash": "ded42c3300fb53fc104e347c916c0467",
+    "semantic_hash": ""
+  },
+  "vite.config.js": {
+    "mtime": 1792862451.197864,
+    "seen": 1792863004.4944248,
+    "ast_hash": "86c0084c64d04ef20e36a4293eea0d1e",
+    "semantic_hash": ""
+  },
+  "src/rt/gbuffer.js": {
+    "mtime": 1792876062.3020117,
+    "seen": 1792885331.1317317,
+    "ast_hash": "71ab66e944db1bc062a425f91a5753bd",
+    "semantic_hash": ""
+  },
+  "src/rt/bvh.js": {
+    "mtime": 1792868836.882405,
+    "seen": 1792869026.8601723,
+    "ast_hash": "befa43cca9a128c984329f2f74c3a535",
+    "semantic_hash": ""
+  },
+  "src/rt/bvh.worker.js": {
+    "mtime": 1792868412.8154569,
+    "seen": 1792869026.860176,
+    "ast_hash": "bb87b574c2039b91cb6f74f7d0cb9667",
+    "semantic_hash": ""
+  },
+  "src/rt/scene.js": {
+    "mtime": 1792880014.2463112,
+    "seen": 1792885331.1317377,
+    "ast_hash": "16cb86d5215b8a68be0e1d3df934a28d",
+    "semantic_hash": ""
+  },
+  "src/rt/view.js": {
+    "mtime": 1793050443.290941,
+    "seen": 1793051828.284176,
+    "ast_hash": "f65711aacd7b9626b8fa2a927938f2cd",
+    "semantic_hash": ""
+  },
+  "tools/test-bvh.mjs": {
+    "mtime": 1792868278.7801585,
+    "seen": 1792869026.860214,
+    "ast_hash": "6e8bcec217a827fd066f386451e9e840",
+    "semantic_hash": ""
+  },
+  "src/rt/tracer.js": {
+    "mtime": 1793048772.1915793,
+    "seen": 1793048978.1917596,
+    "ast_hash": "7e22c6404d65447a62d5178ddba5e1ad",
+    "semantic_hash": ""
+  },
+  "tools/reference-view.js": {
+    "mtime": 1792880584.2228107,
+    "seen": 1792885331.1317573,
+    "ast_hash": "d4f770d6002a40e116b0485f360661f8",
+    "semantic_hash": ""
+  },
+  "tools/reference.mjs": {
+    "mtime": 1793048315.1644313,
+    "seen": 1793048978.1917944,
+    "ast_hash": "e8e629ea51a750a4de88a6307a8ab1ea",
+    "semantic_hash": ""
+  },
+  "src/rt/denoise.js": {
+    "mtime": 1793048772.1921299,
+    "seen": 1793048978.1917417,
+    "ast_hash": "750a903166724d72bed6ffa9b5463f16",
+    "semantic_hash": ""
+  },
+  "src/rt/textures.js": {
+    "mtime": 1792880003.8534086,
+    "seen": 1792885331.1317425,
+    "ast_hash": "8f55087b903aaf1579b700b65f424e82",
+    "semantic_hash": ""
+  },
+  "src/quality.js": {
+    "mtime": 1793050603.2690604,
+    "seen": 1793051828.284159,
+    "ast_hash": "eadc169ccb5a4acb2cd5d4e10fb2678a",
+    "semantic_hash": ""
+  },
+  "tools/profile.mjs": {
+    "mtime": 1793048861.2949502,
+    "seen": 1793048978.1917863,
+    "ast_hash": "a041150215e421e4bb2f1db762b6bd97",
+    "semantic_hash": ""
+  },
+  "src/fluid/mpm.js": {
+    "mtime": 1793051430.9005497,
+    "seen": 1793051828.2841427,
+    "ast_hash": "aa50e4b15bf2699b2b5bf8301a103f02",
+    "semantic_hash": ""
+  }
+}
